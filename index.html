@@ -84,6 +84,7 @@
   .cart-line{padding:9px 0;border-bottom:1.5px dashed var(--rule);}
   .cart-line:last-child{border-bottom:none;}
   .cl-name{font-weight:700;font-size:14px;margin-bottom:6px;}
+  .cl-flat-tag{font-size:10px;font-weight:700;color:var(--navy);background:var(--paper-deep);border-radius:5px;padding:2px 5px;margin-left:4px;}
   .cl-fields{display:flex;align-items:center;gap:6px;}
   .cl-fields input{width:0;flex:1;min-width:0;font-size:15px;font-weight:700;padding:8px 8px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);font-variant-numeric:tabular-nums;color:var(--ink);}
   .cl-fields input:focus{outline:none;border-color:var(--navy);}
@@ -123,6 +124,16 @@
   .st-bank{text-align:center;font-size:12.5px;font-weight:700;color:var(--navy);margin-top:16px;padding-top:12px;border-top:1.5px dashed var(--rule);}
   .st-foot{text-align:center;font-size:11px;color:#9a9180;margin-top:14px;}
   .share-btn{background:var(--navy);margin-top:8px;}
+
+  .period-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:8px;}
+  .period-btn{background:#fff;border:1.5px solid var(--rule);border-radius:9px;padding:9px 4px;font-weight:700;font-size:12.5px;color:var(--ink);cursor:pointer;}
+  .period-btn.selected{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .custom-range-row{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+  .custom-range-row input{flex:1;font-size:13.5px;padding:8px;border:2px solid var(--rule);border-radius:8px;background:#fff;}
+  .custom-range-row span{color:#9a9180;font-weight:700;}
+  .view-toggle{display:flex;gap:8px;margin:4px 0 16px;}
+  .view-toggle button{flex:1;background:var(--paper-deep);border:1.5px solid var(--rule);border-radius:9px;padding:10px 4px;font-weight:700;font-size:13px;color:#7a7260;cursor:pointer;}
+  .view-toggle button.active{background:var(--navy);color:#fff;border-color:var(--navy);}
 
   @media print{
     body{background:#fff;}
@@ -202,6 +213,14 @@
   @keyframes stampIn{0%{transform:scale(2.2) rotate(-15deg);opacity:0;}60%{transform:scale(0.85) rotate(-15deg);opacity:1;}100%{transform:scale(1) rotate(-15deg);opacity:1;}}
   .total-out{text-align:center;padding:14px;margin-bottom:14px;background:var(--navy);border-radius:12px;color:var(--paper);}
   .total-out .l{font-size:12px;color:#9FB4BC;font-weight:700;}
+
+  .payment-row{background:#fff;border:1.5px solid var(--rule);border-radius:10px;padding:11px 13px;margin-bottom:8px;}
+  .pmt-top{display:flex;justify-content:space-between;align-items:center;}
+  .pmt-name{font-weight:700;font-size:14.5px;}
+  .pmt-amt{font-weight:900;font-size:15.5px;color:var(--green);font-variant-numeric:tabular-nums;}
+  .pmt-bottom{display:flex;justify-content:space-between;align-items:center;margin-top:6px;}
+  .pmt-meta{font-size:11.5px;color:#9a9180;}
+  .pmt-undo{background:none;border:1.5px solid var(--rule);border-radius:7px;color:var(--stamp);font-size:11.5px;font-weight:700;padding:5px 9px;cursor:pointer;}
   .total-out .v{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums;}
 
   .fab{position:fixed;bottom:22px;right:calc(50% - 240px + 18px);max-width:480px;background:var(--navy);color:#fff;border:none;width:54px;height:54px;border-radius:50%;font-size:26px;box-shadow:0 6px 16px rgba(28,58,75,0.4);cursor:pointer;z-index:10;}
@@ -258,8 +277,12 @@ let showAllClients = false;
 let cart = []; // [{itemId, price, qty}] - 한 거래처에 한 번에 등록할 품목 목록
 let cartPayMode = 'credit';
 let selectedStatementClientId = null;
+let statementPeriod = '1w'; // '1w','1m','3m','6m','1y','custom'
+let statementCustomStart = null;
+let statementCustomEnd = null;
+let statementView = 'client'; // 'client' | 'summary'
 let editingTxId = null;
-function cartTotal(){ return cart.reduce((s,l)=> s + (Number(l.price)||0)*(Math.round((Number(l.qty)||0)*10)/10), 0); }
+function cartTotal(){ return cart.reduce((s,l)=> s + (l.flat ? (Number(l.price)||0) : (Number(l.price)||0)*(Math.round((Number(l.qty)||0)*10)/10)), 0); }
 
 function realTodayKey(){
   const d = new Date();
@@ -308,6 +331,10 @@ async function loadState(){
   if(!state.clients) state.clients = [];
   if(!state.items) state.items = [];
   if(!state.tx) state.tx = {};
+  if(!state.payments) state.payments = [];
+  state.items.forEach(it=>{
+    if((it.name==='공임' || it.name==='운임') && !it.flatRate) it.flatRate = true;
+  });
 }
 async function saveState(){
   try{
@@ -379,7 +406,8 @@ function renderToday(){
         state.items.forEach(it=>{
           const has = itemHasTodayPrice(it);
           const inCart = cart.some(l=>l.itemId===it.id);
-          html += `<button class="item-btn ${inCart?'selected':''} ${has?'':'noprice'}" data-item="${it.id}">${it.name}<span class="p">${has?won(it.price)+'/kg':'시세 미입력'}</span></button>`;
+          const priceLabel = has ? (it.flatRate ? won(it.price) : won(it.price)+'/kg') : '시세 미입력';
+          html += `<button class="item-btn ${inCart?'selected':''} ${has?'':'noprice'}" data-item="${it.id}">${it.name}<span class="p">${priceLabel}</span></button>`;
         });
         html += `</div>`;
 
@@ -387,14 +415,14 @@ function renderToday(){
           html += `<div class="cart-list">`;
           cart.forEach((line,idx)=>{
             const it = getItem(line.itemId);
-            const sub = (Number(line.price)||0)*(Number(line.qty)||0);
+            const isFlat = !!line.flat;
+            const sub = isFlat ? (Number(line.price)||0) : (Number(line.price)||0)*(Number(line.qty)||0);
             html += `
             <div class="cart-line">
-              <div class="cl-name">${it?it.name:''}</div>
+              <div class="cl-name">${it?it.name:''}${isFlat?' <span class="cl-flat-tag">고정가</span>':''}</div>
               <div class="cl-fields">
-                <input type="number" inputmode="numeric" class="cl-price" data-cartidx="${idx}" placeholder="단가/kg" value="${line.price||''}">
-                <span class="cl-x">×</span>
-                <input type="number" inputmode="decimal" step="0.1" class="cl-qty" data-cartidx="${idx}" placeholder="kg" value="${line.qty||''}">
+                <input type="number" inputmode="numeric" class="cl-price" data-cartidx="${idx}" placeholder="${isFlat?'가격':'단가/kg'}" value="${line.price||''}">
+                ${isFlat?'':`<span class="cl-x">×</span><input type="number" inputmode="decimal" step="0.1" class="cl-qty" data-cartidx="${idx}" placeholder="kg" value="${line.qty||''}">`}
                 <span class="cl-sub">${won(sub)}</span>
                 <button class="cl-del" data-cartdel="${idx}">×</button>
               </div>
@@ -444,8 +472,8 @@ function renderToday(){
           <div class="tx-edit">
             <div class="tx-edit-name">${it?it.name:'(삭제된 품목)'} 수정</div>
             <div class="field-row">
-              <div class="field"><label>단가 (원/kg)</label><input type="number" inputmode="numeric" id="editPrice" value="${t.price}"></div>
-              <div class="field"><label>수량 (kg)</label><input type="number" inputmode="decimal" step="0.1" id="editQty" value="${t.qty}"></div>
+              <div class="field"><label>${t.flat?'가격 (원)':'단가 (원/kg)'}</label><input type="number" inputmode="numeric" id="editPrice" value="${t.price}"></div>
+              ${t.flat?'':`<div class="field"><label>수량 (kg)</label><input type="number" inputmode="decimal" step="0.1" id="editQty" value="${t.qty}"></div>`}
             </div>
             <div class="pay-toggle">
               <button id="editPayCredit" class="credit ${!t.paid?'active':''}">외상(미수금)</button>
@@ -460,7 +488,7 @@ function renderToday(){
           html += `
           <div class="tx-row">
             <div class="name">${it?it.name:'(삭제된 품목)'}</div>
-            <div class="detail">${won(t.price)}/kg × ${t.qty}kg</div>
+            <div class="detail">${t.flat? '고정 가격' : `${won(t.price)}/kg × ${t.qty}kg`}</div>
             <div class="right">
               <span class="total ${t.paid?'paid':'credit'}">${won(t.total)}</span>
               <button class="edit" data-editopen="${t.id}">수정</button>
@@ -479,7 +507,8 @@ function renderPrices(){
   let html = `
   <div class="add-form" id="addItemForm" style="display:${state._showAddItem?'block':'none'}">
     <input type="text" id="newItemName" placeholder="품목 이름 (예: 자연산 광어)">
-    <input type="number" inputmode="numeric" id="newItemPrice" placeholder="오늘 단가 (원/kg) · 모르면 비워두세요">
+    <input type="number" inputmode="numeric" id="newItemPrice" placeholder="오늘 단가 · 모르면 비워두세요">
+    <div class="row"><input type="checkbox" id="newItemFlat" style="width:18px;height:18px;"> 고정 가격 품목 (kg당 단가 아님 · 공임, 운임 등)</div>
     <button class="btn-main" id="saveItemBtn">품목·시세 저장</button>
   </div>
   <div class="section-title">오늘의 시세 입력 <span class="count">${state.items.length}</span></div>
@@ -490,15 +519,16 @@ function renderPrices(){
   } else {
     state.items.forEach(it=>{
       const fresh = itemHasTodayPrice(it);
+      const unit = it.flatRate ? '' : '/kg';
       html += `
       <div class="item-row">
         <div class="top-line">
           <input type="text" class="iname-input" data-nameitem="${it.id}" value="${it.name}">
           <button class="icon-btn" data-delitem="${it.id}">삭제</button>
         </div>
-        <div class="istatus ${fresh?'fresh':''}">${fresh? '오늘 시세 입력됨' : (it.price? '어제 '+won(it.price)+' · 오늘 미입력' : '시세 미입력')}</div>
+        <div class="istatus ${fresh?'fresh':''}">${it.flatRate?'고정 가격 · ':''}${fresh? '오늘 시세 입력됨' : (it.price? '어제 '+won(it.price)+' · 오늘 미입력' : '시세 미입력')}</div>
         <div class="item-price-row">
-          <input type="number" inputmode="numeric" placeholder="오늘 단가 (원/kg)" value="${fresh?it.price:''}" data-priceitem="${it.id}">
+          <input type="number" inputmode="numeric" placeholder="${it.flatRate?'오늘 가격 (원)':'오늘 단가 (원/kg)'}" value="${fresh?it.price:''}" data-priceitem="${it.id}">
           ${(!fresh && it.price)?`<button class="same-btn" data-samebtn="${it.id}">어제와 동일</button>`:''}
         </div>
       </div>`;
@@ -562,34 +592,67 @@ function renderBalance(){
       </div>`;
     });
   }
+
+  html += `<div class="section-title">입금 내역</div>`;
+  const payments = (state.payments||[]).slice().reverse();
+  if(payments.length===0){
+    html += `<div class="empty">아직 입금 처리한 기록이 없습니다.</div>`;
+  } else {
+    payments.forEach(p=>{
+      const cl = getClient(p.clientId);
+      html += `
+      <div class="payment-row">
+        <div class="pmt-top">
+          <span class="pmt-name">${cl?cl.name:'(삭제된 거래처)'}</span>
+          <span class="pmt-amt">${won(p.amount)}</span>
+        </div>
+        <div class="pmt-bottom">
+          <span class="pmt-meta">${dateLabel(p.date)} · ${p.type==='full'?'전액 정산':'입금 반영'}</span>
+          <button class="pmt-undo" data-undopay="${p.id}">입금 취소</button>
+        </div>
+      </div>`;
+    });
+  }
   return html;
 }
 
-function renderStatement(){
-  let html = '';
-  if(state.clients.length===0){
-    html += `<div class="empty">거래처를 먼저 등록해주세요.</div>`;
-    return html;
+function periodLabel(period){
+  return { 'today':'오늘', '1w':'1주일', '1m':'1개월', '3m':'3개월', '6m':'6개월', '1y':'1년', 'custom':'기간설정' }[period] || '';
+}
+function periodToRange(period){
+  const end = realTodayKey();
+  if(period==='today'){
+    return [end, end];
   }
-  html += `<div class="section-title no-print">거래처 선택</div>`;
-  html += `<div class="fav-grid no-print">`;
-  state.clients.forEach(c=>{
-    html += `<button class="fav-btn ${c.id===selectedStatementClientId?'selected':''}" data-statclient="${c.id}">${c.name}</button>`;
+  if(period==='custom'){
+    return [statementCustomStart || end, statementCustomEnd || end];
+  }
+  const d = new Date();
+  if(period==='1w') d.setDate(d.getDate()-6);
+  else if(period==='1m') d.setMonth(d.getMonth()-1);
+  else if(period==='3m') d.setMonth(d.getMonth()-3);
+  else if(period==='6m') d.setMonth(d.getMonth()-6);
+  else if(period==='1y') d.setFullYear(d.getFullYear()-1);
+  const start = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  return [start, end];
+}
+function txInRange(start, end, clientId){
+  const out = [];
+  Object.keys(state.tx).forEach(dateKey=>{
+    if(dateKey>=start && dateKey<=end){
+      (state.tx[dateKey]||[]).forEach(t=>{
+        if(!clientId || t.clientId===clientId){ out.push(Object.assign({date:dateKey}, t)); }
+      });
+    }
   });
-  html += `</div>`;
-
-  if(selectedStatementClientId){
-    const c = getClient(selectedStatementClientId);
-    if(c){
-      const txs = todayTx().filter(t=>t.clientId===c.id);
-      const todayTotal = txs.reduce((s,t)=>s+t.total,0);
-      const todayPaid = txs.filter(t=>t.paid).reduce((s,t)=>s+t.total,0);
-      const todayCredit = txs.filter(t=>!t.paid).reduce((s,t)=>s+t.total,0);
-      const priorBalance = Math.max(0, (c.balance||0) - todayCredit);
-      const grandTotal = todayTotal + priorBalance;
-
-      html += `
-      <div class="statement" id="statementPrintArea">
+  out.sort((a,b)=> a.date<b.date?-1:(a.date>b.date?1:0));
+  return out;
+}
+function paymentsInRange(start, end, clientId){
+  return (state.payments||[]).filter(p=> p.date>=start && p.date<=end && (!clientId || p.clientId===clientId));
+}
+function shopHeaderHtml(){
+  return `
         <div class="st-head">
           <div class="st-shop">샛별수산</div>
           <div class="st-shopsub">노량진 수산시장 1층 선어 9,10,11번 자리</div>
@@ -599,39 +662,146 @@ function renderStatement(){
             <div>업태 도·소매 · 종목 수산물</div>
           </div>
           <div class="st-title">거래명세서</div>
-        </div>
-        <div class="st-meta">
-          <div><b>거래처</b> ${c.name}</div>
-          <div><b>날짜</b> ${dateLabel(workingDate)}</div>
-        </div>
-        <table class="st-table">
-          <thead><tr><th>품목</th><th>단가</th><th>수량</th><th>금액</th></tr></thead>
-          <tbody>
-            ${txs.length? txs.map(t=>{
-              const it=getItem(t.itemId);
-              return `<tr><td>${it?it.name:'-'}</td><td>${won(t.price)}</td><td>${t.qty}kg</td><td>${won(t.total)}</td></tr>`;
-            }).join('') : `<tr><td colspan="4" class="st-empty">오늘 등록된 거래가 없습니다</td></tr>`}
-          </tbody>
-        </table>
-        <div class="st-rows">
-          <div class="st-row"><span>오늘 거래 합계</span><span>${won(todayTotal)}</span></div>
-          <div class="st-row sub"><span>· 즉시결제</span><span>${won(todayPaid)}</span></div>
-          <div class="st-row sub credit"><span>· 외상(오늘 발생)</span><span>${won(todayCredit)}</span></div>
-          <div class="st-row"><span>이전 잔액</span><span>${won(priorBalance)}</span></div>
-          <div class="st-row total"><span>현재 총 잔액</span><span>${won(c.balance||0)}</span></div>
-          <div class="st-row grand"><span>거래·잔액 총 합계</span><span>${won(grandTotal)}</span></div>
-        </div>
-        <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
-        <div class="st-foot">샛별수산 · 함께한 50년, 함께 할 50년 · 감사합니다</div>
-      </div>
+        </div>`;
+}
 
-      <div class="no-print">
-        <button class="btn-main" id="printBtn">무선 프린터로 인쇄</button>
-        <button class="btn-main share-btn" id="shareBtn">사진으로 문자·이메일 보내기</button>
-        <button class="btn-ghost" id="downloadBtn">사진 파일로만 저장하기</button>
-        <div class="sub-note" style="margin-top:6px;">기기에 이미 연결된 무선 프린터(Wi-Fi, AirPrint 등)가 있으면 인쇄 화면에서 바로 선택할 수 있어요. 공유 버튼을 누르면 문자·카카오톡·이메일 중 원하는 곳으로 사진을 바로 보낼 수 있습니다.</div>
-      </div>`;
+function renderStatement(){
+  let html = '';
+  if(state.clients.length===0){
+    html += `<div class="empty">거래처를 먼저 등록해주세요.</div>`;
+    return html;
+  }
+
+  const [rangeStart, rangeEnd] = periodToRange(statementPeriod);
+
+  html += `<div class="section-title no-print">기간 선택</div>`;
+  html += `<div class="period-grid no-print">`;
+  ['today','1w','1m','3m','6m','1y','custom'].forEach(key=>{
+    html += `<button class="period-btn ${statementPeriod===key?'selected':''}" data-period="${key}">${periodLabel(key)}</button>`;
+  });
+  html += `</div>`;
+
+  if(statementPeriod==='custom'){
+    html += `<div class="custom-range-row no-print">
+      <input type="date" id="customStartInput" value="${statementCustomStart||rangeStart}">
+      <span>~</span>
+      <input type="date" id="customEndInput" value="${statementCustomEnd||rangeEnd}">
+    </div>`;
+  }
+  html += `<div class="sub-note no-print">${dateLabel(rangeStart)} ~ ${dateLabel(rangeEnd)} 기준</div>`;
+
+  html += `<div class="view-toggle no-print">
+    <button class="${statementView==='client'?'active':''}" data-view="client">거래처별 명세서</button>
+    <button class="${statementView==='summary'?'active':''}" data-view="summary">전체 요약</button>
+  </div>`;
+
+  if(statementView==='client'){
+    const activeClientIds = new Set(txInRange(rangeStart, rangeEnd).map(t=>t.clientId));
+    const visibleClients = state.clients.filter(c=>activeClientIds.has(c.id));
+
+    html += `<div class="section-title no-print">거래처 선택 <span class="count">${visibleClients.length}</span></div>`;
+    if(visibleClients.length===0){
+      html += `<div class="empty">이 기간에 거래한 거래처가 없습니다.</div>`;
+    } else {
+      html += `<div class="fav-grid no-print">`;
+      visibleClients.forEach(c=>{
+        html += `<button class="fav-btn ${c.id===selectedStatementClientId?'selected':''}" data-statclient="${c.id}">${c.name}</button>`;
+      });
+      html += `</div>`;
     }
+
+    if(selectedStatementClientId && activeClientIds.has(selectedStatementClientId)){
+      const c = getClient(selectedStatementClientId);
+      if(c){
+        const txs = txInRange(rangeStart, rangeEnd, c.id);
+        const periodTotal = txs.reduce((s,t)=>s+t.total,0);
+        const periodPaid = txs.filter(t=>t.paid).reduce((s,t)=>s+t.total,0);
+        const periodCredit = txs.filter(t=>!t.paid).reduce((s,t)=>s+t.total,0);
+        const paymentsTotal = paymentsInRange(rangeStart, rangeEnd, c.id).reduce((s,p)=>s+p.amount,0);
+        const priorBalance = Math.max(0, (c.balance||0) - periodCredit + paymentsTotal);
+        const grandTotal = periodTotal + priorBalance;
+
+        html += `
+        <div class="statement" id="statementPrintArea">
+          ${shopHeaderHtml()}
+          <div class="st-meta">
+            <div><b>거래처</b> ${c.name}</div>
+            <div><b>기간</b> ${dateLabel(rangeStart)} ~ ${dateLabel(rangeEnd)}</div>
+          </div>
+          <table class="st-table">
+            <thead><tr><th>날짜</th><th>품목</th><th>단가</th><th>수량</th><th>금액</th></tr></thead>
+            <tbody>
+              ${txs.length? txs.map(t=>{
+                const it=getItem(t.itemId);
+                return `<tr><td>${dateLabel(t.date)}</td><td>${it?it.name:'-'}</td><td>${won(t.price)}</td><td>${t.flat?'-':t.qty+'kg'}</td><td>${won(t.total)}</td></tr>`;
+              }).join('') : `<tr><td colspan="5" class="st-empty">이 기간에 등록된 거래가 없습니다</td></tr>`}
+            </tbody>
+          </table>
+          <div class="st-rows">
+            <div class="st-row"><span>기간 거래 합계</span><span>${won(periodTotal)}</span></div>
+            <div class="st-row sub"><span>· 즉시결제</span><span>${won(periodPaid)}</span></div>
+            <div class="st-row sub credit"><span>· 외상(기간 중 발생)</span><span>${won(periodCredit)}</span></div>
+            ${paymentsTotal>0?`<div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금액</span><span>-${won(paymentsTotal)}</span></div>`:''}
+            <div class="st-row"><span>이전 잔액</span><span>${won(priorBalance)}</span></div>
+            <div class="st-row total"><span>현재 총 잔액</span><span>${won(c.balance||0)}</span></div>
+            <div class="st-row grand"><span>거래·잔액 총 합계</span><span>${won(grandTotal)}</span></div>
+          </div>
+          <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
+          <div class="st-foot">좋은 수산물의 기준, 샛별수산</div>
+        </div>
+
+        <div class="no-print">
+          <button class="btn-main" id="printBtn">무선 프린터로 인쇄</button>
+          <button class="btn-main share-btn" id="shareBtn">사진으로 문자·이메일 보내기</button>
+          <button class="btn-ghost" id="downloadBtn">사진 파일로만 저장하기</button>
+          <div class="sub-note" style="margin-top:6px;">기기에 이미 연결된 무선 프린터(Wi-Fi, AirPrint 등)가 있으면 인쇄 화면에서 바로 선택할 수 있어요. 공유 버튼을 누르면 문자·카카오톡·이메일 중 원하는 곳으로 사진을 바로 보낼 수 있습니다.</div>
+        </div>`;
+      }
+    }
+  } else {
+    const txs = txInRange(rangeStart, rangeEnd);
+    const periodTotal = txs.reduce((s,t)=>s+t.total,0);
+    const periodPaid = txs.filter(t=>t.paid).reduce((s,t)=>s+t.total,0);
+    const periodCredit = txs.filter(t=>!t.paid).reduce((s,t)=>s+t.total,0);
+    const paymentsTotal = paymentsInRange(rangeStart, rangeEnd).reduce((s,p)=>s+p.amount,0);
+
+    const byClient = {};
+    txs.forEach(t=>{ byClient[t.clientId] = (byClient[t.clientId]||0) + t.total; });
+    const clientRows = Object.keys(byClient)
+      .map(cid=>({ client:getClient(cid), total:byClient[cid] }))
+      .filter(r=>r.client)
+      .sort((a,b)=>b.total-a.total);
+
+    html += `
+    <div class="statement" id="statementPrintArea">
+      ${shopHeaderHtml()}
+      <div class="st-meta">
+        <div><b>기간</b> ${dateLabel(rangeStart)} ~ ${dateLabel(rangeEnd)}</div>
+        <div><b>거래처 수</b> ${clientRows.length}곳</div>
+      </div>
+      <div class="st-rows">
+        <div class="st-row"><span>기간 전체 거래 합계</span><span>${won(periodTotal)}</span></div>
+        <div class="st-row sub"><span>· 즉시결제</span><span>${won(periodPaid)}</span></div>
+        <div class="st-row sub credit"><span>· 외상</span><span>${won(periodCredit)}</span></div>
+        <div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금/정산액</span><span>${won(paymentsTotal)}</span></div>
+        <div class="st-row total"><span>전체 미수금 합계 (현재)</span><span>${won(totalBalance())}</span></div>
+      </div>
+      <div class="section-title" style="margin-top:14px;">거래처별 합계</div>
+      <table class="st-table">
+        <thead><tr><th>거래처</th><th>거래 합계</th></tr></thead>
+        <tbody>
+          ${clientRows.length? clientRows.map(r=>`<tr><td>${r.client.name}</td><td>${won(r.total)}</td></tr>`).join('') : `<tr><td colspan="2" class="st-empty">이 기간에 등록된 거래가 없습니다</td></tr>`}
+        </tbody>
+      </table>
+      <div class="st-foot">좋은 수산물의 기준, 샛별수산</div>
+    </div>
+
+    <div class="no-print">
+      <button class="btn-main" id="printBtn">무선 프린터로 인쇄</button>
+      <button class="btn-main share-btn" id="shareBtn">사진으로 문자·이메일 보내기</button>
+      <button class="btn-ghost" id="downloadBtn">사진 파일로만 저장하기</button>
+      <div class="sub-note" style="margin-top:6px;">기기에 이미 연결된 무선 프린터(Wi-Fi, AirPrint 등)가 있으면 인쇄 화면에서 바로 선택할 수 있어요. 공유 버튼을 누르면 문자·카카오톡·이메일 중 원하는 곳으로 사진을 바로 보낼 수 있습니다.</div>
+    </div>`;
   }
   return html;
 }
@@ -670,7 +840,7 @@ function attachHandlers(){
         else {
           const it = getItem(id);
           const pre = itemHasTodayPrice(it) ? it.price : '';
-          cart.push({ itemId:id, price:pre, qty:'' });
+          cart.push({ itemId:id, price:pre, qty: it.flatRate?1:'', flat: !!it.flatRate });
         }
         render();
       };
@@ -687,8 +857,9 @@ function attachHandlers(){
         else cart[idx].qty = inp.value;
         const row = inp.closest('.cart-line');
         const subEl = row?.querySelector('.cl-sub');
-        const p = Number(cart[idx].price)||0, q = Number(cart[idx].qty)||0;
-        if(subEl) subEl.textContent = won(p*q);
+        const p = Number(cart[idx].price)||0;
+        const sub = cart[idx].flat ? p : p*(Number(cart[idx].qty)||0);
+        if(subEl) subEl.textContent = won(sub);
         const sumEl = document.getElementById('sumPreview');
         if(sumEl) sumEl.textContent = won(cartTotal());
       });
@@ -700,7 +871,7 @@ function attachHandlers(){
     payCredit?.addEventListener('click', ()=>{ cartPayMode='credit'; payCredit.classList.add('active'); payCash.classList.remove('active'); });
 
     document.getElementById('addTxBtn')?.addEventListener('click', async ()=>{
-      const validLines = cart.filter(l=> Number(l.price)!==0 && Number(l.qty)>0);
+      const validLines = cart.filter(l=> Number(l.price)!==0 && (l.flat || Number(l.qty)>0));
       if(validLines.length===0){ alert('단가와 수량을 입력한 품목이 없습니다.'); return; }
       const c = getClient(selectedClientId);
       const groupId = uid();
@@ -708,11 +879,11 @@ function attachHandlers(){
       let batchTotal = 0;
       validLines.forEach(l=>{
         const p = Number(l.price);
-        const q = Math.round(Number(l.qty)*10)/10;
-        const total = Math.round(p*q);
+        const q = l.flat ? 1 : Math.round(Number(l.qty)*10)/10;
+        const total = l.flat ? Math.round(p) : Math.round(p*q);
         batchTotal += total;
         // 단가를 여기서 고치더라도 품목의 기본(오늘) 시세는 바꾸지 않음 - 이 거래처에만 적용
-        list.push({ id: uid(), groupId, clientId: c.id, itemId: l.itemId, price:p, qty:q, total, paid: cartPayMode==='cash' });
+        list.push({ id: uid(), groupId, clientId: c.id, itemId: l.itemId, price:p, qty:q, total, paid: cartPayMode==='cash', flat: !!l.flat });
       });
       setTodayTx(list);
       if(cartPayMode==='credit'){ c.balance = (c.balance||0) + batchTotal; }
@@ -757,10 +928,10 @@ function attachHandlers(){
         const t = list.find(x=>x.id===editingTxId);
         if(!t) return;
         const newPrice = Number(document.getElementById('editPrice').value||0);
-        const newQty = Math.round(Number(document.getElementById('editQty').value||0)*10)/10;
-        if(newPrice===0 || newQty<=0){ alert('단가와 수량을 입력해주세요.'); return; }
+        const newQty = t.flat ? 1 : Math.round(Number(document.getElementById('editQty').value||0)*10)/10;
+        if(newPrice===0 || (!t.flat && newQty<=0)){ alert('단가와 수량을 입력해주세요.'); return; }
         const newPaid = editPayMode==='cash';
-        const newTotal = Math.round(newPrice*newQty);
+        const newTotal = t.flat ? Math.round(newPrice) : Math.round(newPrice*newQty);
         const c = getClient(t.clientId);
         if(c){
           if(!t.paid) c.balance = Math.max(0,(c.balance||0)-t.total);
@@ -779,10 +950,12 @@ function attachHandlers(){
     document.getElementById('saveItemBtn')?.addEventListener('click', async ()=>{
       const nameEl = document.getElementById('newItemName');
       const priceEl = document.getElementById('newItemPrice');
+      const flatEl = document.getElementById('newItemFlat');
       const name = nameEl.value.trim();
       if(!name){ alert('품목 이름을 입력해주세요.'); return; }
       const priceVal = Number(priceEl.value||0);
-      const newItem = { id: uid(), name, price:0, priceDate:'' };
+      const isFlat = flatEl.checked || name==='공임' || name==='운임';
+      const newItem = { id: uid(), name, price:0, priceDate:'', flatRate: isFlat };
       if(priceVal>0){ newItem.price = priceVal; newItem.priceDate = workingDate; }
       state.items.push(newItem);
       state._showAddItem = false;
@@ -808,6 +981,7 @@ function attachHandlers(){
         const newName = inp.value.trim();
         if(!newName){ inp.value = it.name; return; }
         it.name = newName;
+        if(newName==='공임' || newName==='운임') it.flatRate = true;
         await saveState(); render();
       });
     });
@@ -874,6 +1048,7 @@ function attachHandlers(){
           if(!state.clients) state.clients = [];
           if(!state.items) state.items = [];
           if(!state.tx) state.tx = {};
+          if(!state.payments) state.payments = [];
           await saveState(); render();
         }
       }catch(err){ alert('백업 파일을 읽을 수 없습니다. 올바른 백업 파일인지 확인해주세요.'); }
@@ -888,7 +1063,11 @@ function attachHandlers(){
         const stampEl = document.getElementById('stamp-'+id);
         stampEl?.classList.add('show');
         setTimeout(async ()=>{
-          const c = getClient(id); if(c) c.balance = 0;
+          const c = getClient(id);
+          if(c && c.balance>0){
+            state.payments.push({ id: uid(), clientId: c.id, amount: c.balance, date: workingDate, type:'full' });
+            c.balance = 0;
+          }
           await saveState(); render();
         }, 550);
       };
@@ -901,12 +1080,48 @@ function attachHandlers(){
         if(amt<=0){ alert('입금된 금액을 입력해주세요.'); return; }
         const c = getClient(id);
         c.balance = Math.max(0, (c.balance||0) - amt);
+        state.payments.push({ id: uid(), clientId: c.id, amount: amt, date: workingDate, type:'partial' });
         await saveState(); render();
+      };
+    });
+    document.querySelectorAll('[data-undopay]').forEach(b=>{
+      b.onclick = async ()=>{
+        const ok = await showConfirm('이 입금 처리를 취소하시겠습니까? 미수금이 다시 늘어납니다.');
+        if(!ok) return;
+        const idx = state.payments.findIndex(p=>p.id===b.dataset.undopay);
+        if(idx>-1){
+          const p = state.payments[idx];
+          const c = getClient(p.clientId);
+          if(c){ c.balance = (c.balance||0) + p.amount; }
+          state.payments.splice(idx,1);
+          await saveState(); render();
+        }
       };
     });
   }
 
   if(activeTab==='statement'){
+    document.querySelectorAll('[data-period]').forEach(b=>{
+      b.onclick = ()=>{
+        const key = b.dataset.period;
+        statementPeriod = key;
+        if(key==='custom' && !statementCustomStart){
+          const [s,e] = periodToRange('1m');
+          statementCustomStart = s; statementCustomEnd = e;
+        }
+        selectedStatementClientId = null;
+        render();
+      };
+    });
+    document.getElementById('customStartInput')?.addEventListener('change', (e)=>{
+      statementCustomStart = e.target.value; selectedStatementClientId = null; render();
+    });
+    document.getElementById('customEndInput')?.addEventListener('change', (e)=>{
+      statementCustomEnd = e.target.value; selectedStatementClientId = null; render();
+    });
+    document.querySelectorAll('[data-view]').forEach(b=>{
+      b.onclick = ()=>{ statementView = b.dataset.view; selectedStatementClientId = null; render(); };
+    });
     document.querySelectorAll('[data-statclient]').forEach(b=>{
       b.onclick = ()=>{ selectedStatementClientId = b.dataset.statclient; render(); };
     });
@@ -921,16 +1136,21 @@ function attachHandlers(){
       return await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
     }
 
-    document.getElementById('shareBtn')?.addEventListener('click', async ()=>{
+    function statementLabel(){
+      if(statementView==='summary') return '전체요약';
       const c = getClient(selectedStatementClientId);
+      return c ? c.name : '거래처';
+    }
+
+    document.getElementById('shareBtn')?.addEventListener('click', async ()=>{
       const btn = document.getElementById('shareBtn');
       btn.disabled = true; btn.textContent = '이미지 만드는 중...';
       try{
         const blob = await captureStatement();
-        const fileName = `거래명세서_${c?c.name:'거래처'}.png`;
+        const fileName = `거래명세서_${statementLabel()}.png`;
         const file = new File([blob], fileName, { type:'image/png' });
         if(navigator.canShare && navigator.canShare({ files:[file] })){
-          await navigator.share({ files:[file], title:'샛별수산 거래명세서', text:`${c?c.name:''} 거래명세서` });
+          await navigator.share({ files:[file], title:'샛별수산 거래명세서', text:`${statementLabel()} 거래명세서` });
         } else {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
@@ -945,10 +1165,9 @@ function attachHandlers(){
     });
 
     document.getElementById('downloadBtn')?.addEventListener('click', async ()=>{
-      const c = getClient(selectedStatementClientId);
       const blob = await captureStatement();
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a'); a.href = url; a.download = `거래명세서_${c?c.name:'거래처'}.png`; a.click();
+      const a = document.createElement('a'); a.href = url; a.download = `거래명세서_${statementLabel()}.png`; a.click();
       URL.revokeObjectURL(url);
     });
   }
