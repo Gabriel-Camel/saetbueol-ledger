@@ -63,6 +63,8 @@
   .section-title:first-child{margin-top:0;}
   .section-title .count{font-family:'Noto Sans KR',sans-serif;font-weight:700;font-size:11px;background:var(--navy);color:var(--paper);padding:2px 7px;border-radius:20px;}
   .sub-note{font-size:12px;color:#9a9180;margin:-4px 0 12px 2px;line-height:1.5;}
+  .search-input{width:100%;font-size:15px;padding:10px 12px;border:2px solid var(--rule);border-radius:9px;background:#fff;margin-bottom:10px;color:var(--ink);font-family:'Noto Sans KR',sans-serif;}
+  .search-input:focus{outline:none;border-color:var(--navy);}
 
   .fav-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:6px;}
   .fav-btn{background:#fff;border:2px solid var(--rule);border-radius:12px;padding:14px 4px;font-weight:700;font-size:14px;color:var(--ink);cursor:pointer;text-align:center;min-height:58px;display:flex;align-items:center;justify-content:center;line-height:1.25;transition:transform .08s;}
@@ -112,8 +114,8 @@
   .st-table{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:13px;}
   .st-table th{text-align:left;font-weight:700;color:#7a7260;border-bottom:1.5px solid var(--rule);padding:6px 4px;font-size:11.5px;}
   .st-table td{padding:7px 4px;border-bottom:1px dashed var(--rule);font-variant-numeric:tabular-nums;}
-  .st-table th:nth-child(2),.st-table th:nth-child(3),.st-table th:nth-child(4),
-  .st-table td:nth-child(2),.st-table td:nth-child(3),.st-table td:nth-child(4){text-align:right;}
+  .st-table .num{text-align:right;}
+  .st-table .center{text-align:center;}
   .st-empty{text-align:center;color:#a59c89;padding:14px 0;}
   .st-rows{border-top:2px solid var(--navy);padding-top:8px;}
   .st-row{display:flex;justify-content:space-between;font-size:13.5px;padding:4px 0;}
@@ -122,6 +124,8 @@
   .st-row.total{font-weight:900;font-size:15px;color:var(--stamp);border-top:1px dashed var(--rule);margin-top:4px;padding-top:8px;}
   .st-row.grand{font-weight:900;font-size:17px;color:var(--navy);border-top:2px solid var(--navy);margin-top:6px;padding-top:10px;}
   .st-bank{text-align:center;font-size:12.5px;font-weight:700;color:var(--navy);margin-top:16px;padding-top:12px;border-top:1.5px dashed var(--rule);}
+  .st-message{margin-top:14px;padding:12px 14px;background:var(--paper-deep);border-radius:9px;font-size:13px;color:var(--ink);line-height:1.6;white-space:pre-wrap;}
+  .msg-input{width:100%;min-height:64px;font-size:14px;padding:11px;border:2px solid var(--rule);border-radius:9px;background:#fff;font-family:'Noto Sans KR',sans-serif;resize:vertical;margin-bottom:6px;color:var(--ink);}
   .st-foot{text-align:center;font-size:11px;color:#9a9180;margin-top:14px;}
   .share-btn{background:var(--navy);margin-top:8px;}
 
@@ -154,6 +158,9 @@
   .pay-toggle button{flex:1;padding:10px;border-radius:8px;border:2px solid var(--rule);background:#fff;font-weight:700;font-size:13.5px;color:#7a7260;cursor:pointer;}
   .pay-toggle button.active{border-color:var(--green);color:var(--green);background:#EAF3EE;}
   .pay-toggle button.active.credit{border-color:var(--stamp);color:var(--stamp);background:#FBEAE7;}
+  .method-toggle{display:flex;gap:8px;margin-bottom:12px;}
+  .method-toggle button{flex:1;padding:8px;border-radius:7px;border:1.5px solid var(--rule);background:#fff;font-weight:700;font-size:12.5px;color:#9a9180;cursor:pointer;}
+  .method-toggle button.active{border-color:var(--navy);color:var(--navy);background:var(--paper-deep);}
   .sum-line{display:flex;justify-content:space-between;align-items:center;padding:10px 2px;border-top:1.5px dashed var(--rule);margin-bottom:12px;}
   .sum-line .l{font-weight:700;color:#7a7260;font-size:13px;}
   .sum-line .v{font-weight:900;font-size:24px;color:var(--navy);font-variant-numeric:tabular-nums;}
@@ -193,6 +200,9 @@
 
   .item-row{background:#fff;border:1.5px solid var(--rule);border-radius:10px;padding:12px 14px;margin-bottom:8px;}
   .item-row .top-line{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;}
+  .order-btns{display:flex;flex-direction:column;gap:2px;flex:0 0 auto;}
+  .order-btn{background:var(--paper-deep);border:1.5px solid var(--rule);border-radius:5px;color:var(--navy);font-size:10px;line-height:1;width:24px;height:18px;cursor:pointer;padding:0;}
+  .order-btn:disabled{opacity:0.3;cursor:default;}
   .item-row .iname-input{flex:1;font-weight:700;font-size:15px;border:2px solid transparent;border-radius:6px;padding:5px 6px;background:transparent;color:var(--ink);font-family:'Noto Sans KR',sans-serif;}
   .item-row .iname-input:focus{outline:none;border-color:var(--navy);background:var(--paper);}
   .item-row .istatus{font-size:11px;color:#9a9180;margin-bottom:8px;}
@@ -270,18 +280,38 @@ const STORAGE_KEY = 'saetbyeol-ledger-data';
 // state.clients: [{id,name,favorite,balance}]
 // state.items: [{id,name,price,priceDate}]
 // state.tx: { 'YYYY-MM-DD': [{id,clientId,itemId,price,qty,total,paid}] }
-let state = { clients: [], items: [], tx: {} };
+let state = { clients: [], items: [], tx: {}, payments: [], clientMessages: {} };
 let activeTab = 'today';
 let selectedClientId = null;
 let showAllClients = false;
 let cart = []; // [{itemId, price, qty}] - 한 거래처에 한 번에 등록할 품목 목록
 let cartPayMode = 'credit';
+let cartPayMethod = 'cash';
 let selectedStatementClientId = null;
 let statementPeriod = '1w'; // '1w','1m','3m','6m','1y','custom'
 let statementCustomStart = null;
 let statementCustomEnd = null;
 let statementView = 'client'; // 'client' | 'summary'
 let editingTxId = null;
+let balanceMethod = {}; // clientId -> 'cash' | 'card' (미수금 탭에서 입금/정산 시 선택)
+let clientsTabSearch = '';
+let todayClientSearch = '';
+let todayItemSearch = '';
+let balanceTabSearch = '';
+function preserveFocusRender(){
+  const active = document.activeElement;
+  const id = active && active.id;
+  const selStart = (active && typeof active.selectionStart==='number') ? active.selectionStart : null;
+  const selEnd = (active && typeof active.selectionEnd==='number') ? active.selectionEnd : null;
+  render();
+  if(id){
+    const el = document.getElementById(id);
+    if(el){
+      el.focus();
+      if(selStart!=null && el.setSelectionRange){ try{ el.setSelectionRange(selStart, selEnd); }catch(e){} }
+    }
+  }
+}
 function cartTotal(){ return cart.reduce((s,l)=> s + (l.flat ? (Number(l.price)||0) : (Number(l.price)||0)*(Math.round((Number(l.qty)||0)*10)/10)), 0); }
 
 function realTodayKey(){
@@ -332,6 +362,7 @@ async function loadState(){
   if(!state.items) state.items = [];
   if(!state.tx) state.tx = {};
   if(!state.payments) state.payments = [];
+  if(!state.clientMessages) state.clientMessages = {};
   state.items.forEach(it=>{
     if((it.name==='공임' || it.name==='운임') && !it.flatRate) it.flatRate = true;
   });
@@ -371,18 +402,24 @@ function render(){
 function renderToday(){
   const favs = state.clients.filter(c=>c.favorite);
   const rest = state.clients.filter(c=>!c.favorite);
-  const list = showAllClients ? state.clients : favs;
+  const baseList = showAllClients ? state.clients : favs;
+  const list = todayClientSearch ? baseList.filter(c=>c.name.includes(todayClientSearch)) : baseList;
 
   let html = '';
   if(state.clients.length===0){
     html += `<div class="empty">아직 등록된 거래처가 없습니다.<br>오른쪽 아래 ＋ 버튼으로 거래처를 먼저 추가해주세요.</div>`;
   } else {
     html += `<div class="section-title">거래처 선택 <span class="count">${list.length}</span></div>`;
-    html += `<div class="fav-grid">`;
-    list.forEach(c=>{
-      html += `<button class="fav-btn ${c.id===selectedClientId?'selected':''}" data-client="${c.id}">${c.name}</button>`;
-    });
-    html += `</div>`;
+    html += `<input type="text" class="search-input" id="todayClientSearchInput" placeholder="거래처 검색" value="${todayClientSearch}">`;
+    if(list.length===0){
+      html += `<div class="empty">'${todayClientSearch}'와 일치하는 거래처가 없습니다.</div>`;
+    } else {
+      html += `<div class="fav-grid">`;
+      list.forEach(c=>{
+        html += `<button class="fav-btn ${c.id===selectedClientId?'selected':''}" data-client="${c.id}">${c.name}</button>`;
+      });
+      html += `</div>`;
+    }
     if(!showAllClients && rest.length>0){
       html += `<button class="more-link" id="showAllBtn">전체 거래처 더보기 (${rest.length}곳)</button>`;
     } else if(showAllClients && rest.length>0){
@@ -402,8 +439,13 @@ function renderToday(){
         html += `<div class="empty">등록된 품목이 없습니다. '품목·시세' 탭에서 먼저 품목을 추가해주세요.</div></div>`;
       } else {
         html += `<div class="sub-note" style="margin:0 0 8px 2px;">품목을 눌러 담으세요. 여러 개를 한 번에 담을 수 있어요. 단가에 마이너스(-)를 붙이면 그만큼 할인됩니다.</div>`;
+        html += `<input type="text" class="search-input" id="todayItemSearchInput" placeholder="품목 검색" value="${todayItemSearch}">`;
+        const filteredItems = todayItemSearch ? state.items.filter(it=>it.name.includes(todayItemSearch)) : state.items;
         html += `<div class="item-grid">`;
-        state.items.forEach(it=>{
+        if(filteredItems.length===0){
+          html += `<div class="empty">'${todayItemSearch}'와 일치하는 품목이 없습니다.</div>`;
+        }
+        filteredItems.forEach(it=>{
           const has = itemHasTodayPrice(it);
           const inCart = cart.some(l=>l.itemId===it.id);
           const priceLabel = has ? (it.flatRate ? won(it.price) : won(it.price)+'/kg') : '시세 미입력';
@@ -434,6 +476,11 @@ function renderToday(){
             <button id="payCredit" class="credit ${cartPayMode==='credit'?'active':''}">외상(미수금)</button>
             <button id="payCash" class="${cartPayMode==='cash'?'active':''}">즉시 결제</button>
           </div>
+          ${cartPayMode==='cash'?`
+          <div class="method-toggle">
+            <button id="methodCash" class="${cartPayMethod==='cash'?'active':''}" data-method="cash">현금</button>
+            <button id="methodCard" class="${cartPayMethod==='card'?'active':''}" data-method="card">카드</button>
+          </div>`:''}
           <div class="sum-line"><span class="l">합계 (${cart.length}개 품목)</span><span class="v" id="sumPreview">${won(cartTotal())}</span></div>
           <button class="btn-main" id="addTxBtn">거래 등록</button>`;
         }
@@ -479,6 +526,11 @@ function renderToday(){
               <button id="editPayCredit" class="credit ${!t.paid?'active':''}">외상(미수금)</button>
               <button id="editPayCash" class="${t.paid?'active':''}">즉시 결제</button>
             </div>
+            ${`
+            <div class="method-toggle" id="editMethodToggle" style="display:${t.paid?'flex':'none'};">
+              <button id="editMethodCash" class="${(t.payMethod||'cash')==='cash'?'active':''}" data-emethod="cash">현금</button>
+              <button id="editMethodCard" class="${t.payMethod==='card'?'active':''}" data-emethod="card">카드</button>
+            </div>`}
             <div class="tx-edit-actions">
               <button class="btn-main" id="editSave">저장</button>
               <button class="btn-ghost" id="editCancel">취소</button>
@@ -488,7 +540,7 @@ function renderToday(){
           html += `
           <div class="tx-row">
             <div class="name">${it?it.name:'(삭제된 품목)'}</div>
-            <div class="detail">${t.flat? '고정 가격' : `${won(t.price)}/kg × ${t.qty}kg`}</div>
+            <div class="detail">${t.flat? '고정 가격' : `${won(t.price)}/kg × ${t.qty}kg`}${t.paid&&t.payMethod?' · '+(t.payMethod==='card'?'카드':'현금'):''}</div>
             <div class="right">
               <span class="total ${t.paid?'paid':'credit'}">${won(t.total)}</span>
               <button class="edit" data-editopen="${t.id}">수정</button>
@@ -517,12 +569,15 @@ function renderPrices(){
   if(state.items.length===0){
     html += `<div class="empty">＋ 버튼으로 품목을 먼저 등록해주세요.<br>예: 양식광어, 자연산광어, 보리숭어, 농어 등</div>`;
   } else {
-    state.items.forEach(it=>{
+    state.items.forEach((it,idx)=>{
       const fresh = itemHasTodayPrice(it);
-      const unit = it.flatRate ? '' : '/kg';
       html += `
       <div class="item-row">
         <div class="top-line">
+          <div class="order-btns">
+            <button class="order-btn" data-moveup="${it.id}" ${idx===0?'disabled':''}>▲</button>
+            <button class="order-btn" data-movedown="${it.id}" ${idx===state.items.length-1?'disabled':''}>▼</button>
+          </div>
           <input type="text" class="iname-input" data-nameitem="${it.id}" value="${it.name}">
           <button class="icon-btn" data-delitem="${it.id}">삭제</button>
         </div>
@@ -549,8 +604,13 @@ function renderClients(){
   if(state.clients.length===0){
     html += `<div class="empty">＋ 버튼을 눌러 첫 거래처를 등록해보세요.</div>`;
   } else {
+    html += `<input type="text" class="search-input" id="clientsSearchInput" placeholder="거래처 검색" value="${clientsTabSearch}">`;
     const sorted = state.clients.slice().sort((a,b)=> (b.favorite-a.favorite));
-    sorted.forEach(c=>{
+    const filtered = clientsTabSearch ? sorted.filter(c=>c.name.includes(clientsTabSearch)) : sorted;
+    if(filtered.length===0){
+      html += `<div class="empty">'${clientsTabSearch}'와 일치하는 거래처가 없습니다.</div>`;
+    }
+    filtered.forEach(c=>{
       html += `
       <div class="client-row">
         <button class="star ${c.favorite?'on':''}" data-fav="${c.id}">★</button>
@@ -578,11 +638,20 @@ function renderBalance(){
   if(withBalance.length===0){
     html += `<div class="empty">현재 미수금이 있는 거래처가 없습니다.</div>`;
   } else {
-    withBalance.forEach(c=>{
+    html += `<input type="text" class="search-input" id="balanceSearchInput" placeholder="거래처 검색" value="${balanceTabSearch}">`;
+    const filteredBalance = balanceTabSearch ? withBalance.filter(c=>c.name.includes(balanceTabSearch)) : withBalance;
+    if(filteredBalance.length===0){
+      html += `<div class="empty">'${balanceTabSearch}'와 일치하는 거래처가 없습니다.</div>`;
+    }
+    filteredBalance.forEach(c=>{
       html += `
       <div class="balance-row" id="brow-${c.id}">
         <div class="bname">${c.name}</div>
         <div class="bamt">${won(c.balance)}</div>
+        <div class="method-toggle" id="bmethod-${c.id}">
+          <button class="${(balanceMethod[c.id]||'cash')==='cash'?'active':''}" data-bmethod="${c.id}" data-mval="cash">현금</button>
+          <button class="${balanceMethod[c.id]==='card'?'active':''}" data-bmethod="${c.id}" data-mval="card">카드</button>
+        </div>
         <div class="adjust-row">
           <input type="number" inputmode="numeric" placeholder="입금된 금액" id="pay-${c.id}">
           <button data-partial="${c.id}">입금 반영</button>
@@ -607,7 +676,7 @@ function renderBalance(){
           <span class="pmt-amt">${won(p.amount)}</span>
         </div>
         <div class="pmt-bottom">
-          <span class="pmt-meta">${dateLabel(p.date)} · ${p.type==='full'?'전액 정산':'입금 반영'}</span>
+          <span class="pmt-meta">${dateLabel(p.date)} · ${p.type==='full'?'전액 정산':'입금 반영'}${p.method?' · '+(p.method==='card'?'카드':'현금'):''}</span>
           <button class="pmt-undo" data-undopay="${p.id}">입금 취소</button>
         </div>
       </div>`;
@@ -715,9 +784,13 @@ function renderStatement(){
       if(c){
         const txs = txInRange(rangeStart, rangeEnd, c.id);
         const periodTotal = txs.reduce((s,t)=>s+t.total,0);
-        const periodPaid = txs.filter(t=>t.paid).reduce((s,t)=>s+t.total,0);
+        const periodCash = txs.filter(t=>t.paid && t.payMethod==='cash').reduce((s,t)=>s+t.total,0);
+        const periodCard = txs.filter(t=>t.paid && t.payMethod==='card').reduce((s,t)=>s+t.total,0);
         const periodCredit = txs.filter(t=>!t.paid).reduce((s,t)=>s+t.total,0);
-        const paymentsTotal = paymentsInRange(rangeStart, rangeEnd, c.id).reduce((s,p)=>s+p.amount,0);
+        const paymentsForClient = paymentsInRange(rangeStart, rangeEnd, c.id);
+        const paymentsTotal = paymentsForClient.reduce((s,p)=>s+p.amount,0);
+        const paymentsCash = paymentsForClient.filter(p=>p.method==='cash').reduce((s,p)=>s+p.amount,0);
+        const paymentsCard = paymentsForClient.filter(p=>p.method==='card').reduce((s,p)=>s+p.amount,0);
         const priorBalance = Math.max(0, (c.balance||0) - periodCredit + paymentsTotal);
         const grandTotal = periodTotal + priorBalance;
 
@@ -729,28 +802,33 @@ function renderStatement(){
             <div><b>기간</b> ${dateLabel(rangeStart)} ~ ${dateLabel(rangeEnd)}</div>
           </div>
           <table class="st-table">
-            <thead><tr><th>날짜</th><th>품목</th><th>단가</th><th>수량</th><th>금액</th></tr></thead>
+            <thead><tr><th>날짜</th><th>품목</th><th class="num">단가</th><th class="num">수량</th><th class="num">금액</th><th class="center">구분</th></tr></thead>
             <tbody>
               ${txs.length? txs.map(t=>{
                 const it=getItem(t.itemId);
-                return `<tr><td>${dateLabel(t.date)}</td><td>${it?it.name:'-'}</td><td>${won(t.price)}</td><td>${t.flat?'-':t.qty+'kg'}</td><td>${won(t.total)}</td></tr>`;
-              }).join('') : `<tr><td colspan="5" class="st-empty">이 기간에 등록된 거래가 없습니다</td></tr>`}
+                const tag = t.paid ? (t.payMethod==='card'?'카드':'현금') : '외상';
+                return `<tr><td>${dateLabel(t.date)}</td><td>${it?it.name:'-'}</td><td class="num">${won(t.price)}</td><td class="num">${t.flat?'-':t.qty+'kg'}</td><td class="num">${won(t.total)}</td><td class="center">${tag}</td></tr>`;
+              }).join('') : `<tr><td colspan="6" class="st-empty">이 기간에 등록된 거래가 없습니다</td></tr>`}
             </tbody>
           </table>
           <div class="st-rows">
             <div class="st-row"><span>기간 거래 합계</span><span>${won(periodTotal)}</span></div>
-            <div class="st-row sub"><span>· 즉시결제</span><span>${won(periodPaid)}</span></div>
+            <div class="st-row sub"><span>· 즉시결제(현금)</span><span>${won(periodCash)}</span></div>
+            <div class="st-row sub"><span>· 즉시결제(카드)</span><span>${won(periodCard)}</span></div>
             <div class="st-row sub credit"><span>· 외상(기간 중 발생)</span><span>${won(periodCredit)}</span></div>
-            ${paymentsTotal>0?`<div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금액</span><span>-${won(paymentsTotal)}</span></div>`:''}
+            ${paymentsTotal>0?`<div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금액 (현금 ${won(paymentsCash)} · 카드 ${won(paymentsCard)})</span><span>-${won(paymentsTotal)}</span></div>`:''}
             <div class="st-row"><span>이전 잔액</span><span>${won(priorBalance)}</span></div>
             <div class="st-row total"><span>현재 총 잔액</span><span>${won(c.balance||0)}</span></div>
             <div class="st-row grand"><span>거래·잔액 총 합계</span><span>${won(grandTotal)}</span></div>
           </div>
           <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
+          ${selectedStatementClientId && state.clientMessages[selectedStatementClientId] ? `<div class="st-message">${state.clientMessages[selectedStatementClientId].replace(/\n/g,'<br>')}</div>` : ''}
           <div class="st-foot">좋은 수산물의 기준, 샛별수산</div>
         </div>
 
         <div class="no-print">
+          <textarea class="msg-input" id="clientMsgInput" placeholder="이 거래처에 전달할 메시지를 입력하세요 (예: 항상 좋은 거래 감사합니다.)">${state.clientMessages[selectedStatementClientId]||''}</textarea>
+          <button class="btn-ghost" id="saveMsgBtn" style="text-decoration:underline;">메시지 저장</button>
           <button class="btn-main" id="printBtn">무선 프린터로 인쇄</button>
           <button class="btn-main share-btn" id="shareBtn">사진으로 문자·이메일 보내기</button>
           <button class="btn-ghost" id="downloadBtn">사진 파일로만 저장하기</button>
@@ -761,9 +839,13 @@ function renderStatement(){
   } else {
     const txs = txInRange(rangeStart, rangeEnd);
     const periodTotal = txs.reduce((s,t)=>s+t.total,0);
-    const periodPaid = txs.filter(t=>t.paid).reduce((s,t)=>s+t.total,0);
+    const periodCash = txs.filter(t=>t.paid && t.payMethod==='cash').reduce((s,t)=>s+t.total,0);
+    const periodCard = txs.filter(t=>t.paid && t.payMethod==='card').reduce((s,t)=>s+t.total,0);
     const periodCredit = txs.filter(t=>!t.paid).reduce((s,t)=>s+t.total,0);
-    const paymentsTotal = paymentsInRange(rangeStart, rangeEnd).reduce((s,p)=>s+p.amount,0);
+    const paymentsAll = paymentsInRange(rangeStart, rangeEnd);
+    const paymentsTotal = paymentsAll.reduce((s,p)=>s+p.amount,0);
+    const paymentsCash = paymentsAll.filter(p=>p.method==='cash').reduce((s,p)=>s+p.amount,0);
+    const paymentsCard = paymentsAll.filter(p=>p.method==='card').reduce((s,p)=>s+p.amount,0);
 
     const byClient = {};
     txs.forEach(t=>{ byClient[t.clientId] = (byClient[t.clientId]||0) + t.total; });
@@ -781,16 +863,17 @@ function renderStatement(){
       </div>
       <div class="st-rows">
         <div class="st-row"><span>기간 전체 거래 합계</span><span>${won(periodTotal)}</span></div>
-        <div class="st-row sub"><span>· 즉시결제</span><span>${won(periodPaid)}</span></div>
+        <div class="st-row sub"><span>· 즉시결제(현금)</span><span>${won(periodCash)}</span></div>
+        <div class="st-row sub"><span>· 즉시결제(카드)</span><span>${won(periodCard)}</span></div>
         <div class="st-row sub credit"><span>· 외상</span><span>${won(periodCredit)}</span></div>
-        <div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금/정산액</span><span>${won(paymentsTotal)}</span></div>
+        <div class="st-row sub" style="color:var(--green);"><span>· 입금/정산액 (현금 ${won(paymentsCash)} · 카드 ${won(paymentsCard)})</span><span>${won(paymentsTotal)}</span></div>
         <div class="st-row total"><span>전체 미수금 합계 (현재)</span><span>${won(totalBalance())}</span></div>
       </div>
       <div class="section-title" style="margin-top:14px;">거래처별 합계</div>
       <table class="st-table">
-        <thead><tr><th>거래처</th><th>거래 합계</th></tr></thead>
+        <thead><tr><th>거래처</th><th class="num">거래 합계</th></tr></thead>
         <tbody>
-          ${clientRows.length? clientRows.map(r=>`<tr><td>${r.client.name}</td><td>${won(r.total)}</td></tr>`).join('') : `<tr><td colspan="2" class="st-empty">이 기간에 등록된 거래가 없습니다</td></tr>`}
+          ${clientRows.length? clientRows.map(r=>`<tr><td>${r.client.name}</td><td class="num">${won(r.total)}</td></tr>`).join('') : `<tr><td colspan="2" class="st-empty">이 기간에 등록된 거래가 없습니다</td></tr>`}
         </tbody>
       </table>
       <div class="st-foot">좋은 수산물의 기준, 샛별수산</div>
@@ -811,7 +894,7 @@ function attachHandlers(){
   fab.style.display = (activeTab==='clients' || activeTab==='prices') ? 'block' : 'none';
 
   document.querySelectorAll('nav.tabs button').forEach(b=>{
-    b.onclick = ()=>{ activeTab=b.dataset.tab; selectedClientId=null; cart=[]; cartPayMode='credit'; selectedStatementClientId=null; editingTxId=null; render(); };
+    b.onclick = ()=>{ activeTab=b.dataset.tab; selectedClientId=null; cart=[]; cartPayMode='credit'; cartPayMethod='cash'; selectedStatementClientId=null; editingTxId=null; todayClientSearch=''; todayItemSearch=''; clientsTabSearch=''; balanceTabSearch=''; render(); };
   });
   fab.onclick = ()=>{
     if(activeTab==='prices'){ state._showAddItem = true; render(); setTimeout(()=>document.getElementById('newItemName')?.focus(),50); }
@@ -819,15 +902,21 @@ function attachHandlers(){
   };
 
   if(activeTab==='today'){
+    document.getElementById('todayClientSearchInput')?.addEventListener('input', (e)=>{
+      todayClientSearch = e.target.value; preserveFocusRender();
+    });
+    document.getElementById('todayItemSearchInput')?.addEventListener('input', (e)=>{
+      todayItemSearch = e.target.value; preserveFocusRender();
+    });
     document.querySelectorAll('[data-client]').forEach(b=>{
-      b.onclick = ()=>{ selectedClientId = b.dataset.client; cart=[]; cartPayMode='credit'; render(); };
+      b.onclick = ()=>{ selectedClientId = b.dataset.client; cart=[]; cartPayMode='credit'; cartPayMethod='cash'; todayItemSearch=''; render(); };
     });
     document.getElementById('showAllBtn')?.addEventListener('click', ()=>{ showAllClients=true; render(); });
     document.getElementById('hideAllBtn')?.addEventListener('click', ()=>{ showAllClients=false; render(); });
 
     document.querySelectorAll('[data-addmore]').forEach(b=>{
       b.onclick = ()=>{
-        selectedClientId = b.dataset.addmore; cart=[]; cartPayMode='credit'; render();
+        selectedClientId = b.dataset.addmore; cart=[]; cartPayMode='credit'; cartPayMethod='cash'; render();
         document.querySelector('.entry-card')?.scrollIntoView({ behavior:'smooth', block:'start' });
       };
     });
@@ -867,8 +956,13 @@ function attachHandlers(){
 
     const payCash = document.getElementById('payCash');
     const payCredit = document.getElementById('payCredit');
-    payCash?.addEventListener('click', ()=>{ cartPayMode='cash'; payCash.classList.add('active'); payCredit.classList.remove('active'); });
-    payCredit?.addEventListener('click', ()=>{ cartPayMode='credit'; payCredit.classList.add('active'); payCash.classList.remove('active'); });
+    payCash?.addEventListener('click', ()=>{ cartPayMode='cash'; render(); });
+    payCredit?.addEventListener('click', ()=>{ cartPayMode='credit'; render(); });
+
+    const methodCash = document.getElementById('methodCash');
+    const methodCard = document.getElementById('methodCard');
+    methodCash?.addEventListener('click', ()=>{ cartPayMethod='cash'; methodCash.classList.add('active'); methodCard.classList.remove('active'); });
+    methodCard?.addEventListener('click', ()=>{ cartPayMethod='card'; methodCard.classList.add('active'); methodCash.classList.remove('active'); });
 
     document.getElementById('addTxBtn')?.addEventListener('click', async ()=>{
       const validLines = cart.filter(l=> Number(l.price)!==0 && (l.flat || Number(l.qty)>0));
@@ -877,17 +971,18 @@ function attachHandlers(){
       const groupId = uid();
       const list = todayTx();
       let batchTotal = 0;
+      const isPaid = cartPayMode==='cash';
       validLines.forEach(l=>{
         const p = Number(l.price);
         const q = l.flat ? 1 : Math.round(Number(l.qty)*10)/10;
         const total = l.flat ? Math.round(p) : Math.round(p*q);
         batchTotal += total;
         // 단가를 여기서 고치더라도 품목의 기본(오늘) 시세는 바꾸지 않음 - 이 거래처에만 적용
-        list.push({ id: uid(), groupId, clientId: c.id, itemId: l.itemId, price:p, qty:q, total, paid: cartPayMode==='cash', flat: !!l.flat });
+        list.push({ id: uid(), groupId, clientId: c.id, itemId: l.itemId, price:p, qty:q, total, paid: isPaid, payMethod: isPaid?cartPayMethod:null, flat: !!l.flat });
       });
       setTodayTx(list);
       if(cartPayMode==='credit'){ c.balance = (c.balance||0) + batchTotal; }
-      cart = []; cartPayMode = 'credit'; selectedClientId = null;
+      cart = []; cartPayMode = 'credit'; cartPayMethod = 'cash'; selectedClientId = null;
       await saveState(); render();
     });
 
@@ -916,12 +1011,24 @@ function attachHandlers(){
 
     if(editingTxId){
       let editPayMode = 'credit';
+      let editPayMethod = 'cash';
       const curTx = todayTx().find(x=>x.id===editingTxId);
-      if(curTx) editPayMode = curTx.paid ? 'cash' : 'credit';
+      if(curTx){ editPayMode = curTx.paid ? 'cash' : 'credit'; editPayMethod = curTx.payMethod || 'cash'; }
       const editPayCash = document.getElementById('editPayCash');
       const editPayCredit = document.getElementById('editPayCredit');
-      editPayCash?.addEventListener('click', ()=>{ editPayMode='cash'; editPayCash.classList.add('active'); editPayCredit.classList.remove('active'); });
-      editPayCredit?.addEventListener('click', ()=>{ editPayMode='credit'; editPayCredit.classList.add('active'); editPayCash.classList.remove('active'); });
+      const editMethodToggle = document.getElementById('editMethodToggle');
+      const editMethodCash = document.getElementById('editMethodCash');
+      const editMethodCard = document.getElementById('editMethodCard');
+      editPayCash?.addEventListener('click', ()=>{
+        editPayMode='cash'; editPayCash.classList.add('active'); editPayCredit.classList.remove('active');
+        if(editMethodToggle) editMethodToggle.style.display='flex';
+      });
+      editPayCredit?.addEventListener('click', ()=>{
+        editPayMode='credit'; editPayCredit.classList.add('active'); editPayCash.classList.remove('active');
+        if(editMethodToggle) editMethodToggle.style.display='none';
+      });
+      editMethodCash?.addEventListener('click', ()=>{ editPayMethod='cash'; editMethodCash.classList.add('active'); editMethodCard.classList.remove('active'); });
+      editMethodCard?.addEventListener('click', ()=>{ editPayMethod='card'; editMethodCard.classList.add('active'); editMethodCash.classList.remove('active'); });
 
       document.getElementById('editSave')?.addEventListener('click', async ()=>{
         const list = todayTx();
@@ -937,7 +1044,7 @@ function attachHandlers(){
           if(!t.paid) c.balance = Math.max(0,(c.balance||0)-t.total);
           if(!newPaid) c.balance = (c.balance||0) + newTotal;
         }
-        t.price = newPrice; t.qty = newQty; t.total = newTotal; t.paid = newPaid;
+        t.price = newPrice; t.qty = newQty; t.total = newTotal; t.paid = newPaid; t.payMethod = newPaid ? editPayMethod : null;
         setTodayTx(list);
         // 품목의 기본(오늘) 시세는 그대로 두고, 이 거래(이 거래처)에만 단가를 반영
         editingTxId = null;
@@ -947,6 +1054,28 @@ function attachHandlers(){
   }
 
   if(activeTab==='prices'){
+    document.querySelectorAll('[data-moveup]').forEach(b=>{
+      b.onclick = async ()=>{
+        const idx = state.items.findIndex(i=>i.id===b.dataset.moveup);
+        if(idx>0){
+          const tmp = state.items[idx-1];
+          state.items[idx-1] = state.items[idx];
+          state.items[idx] = tmp;
+          await saveState(); render();
+        }
+      };
+    });
+    document.querySelectorAll('[data-movedown]').forEach(b=>{
+      b.onclick = async ()=>{
+        const idx = state.items.findIndex(i=>i.id===b.dataset.movedown);
+        if(idx>-1 && idx<state.items.length-1){
+          const tmp = state.items[idx+1];
+          state.items[idx+1] = state.items[idx];
+          state.items[idx] = tmp;
+          await saveState(); render();
+        }
+      };
+    });
     document.getElementById('saveItemBtn')?.addEventListener('click', async ()=>{
       const nameEl = document.getElementById('newItemName');
       const priceEl = document.getElementById('newItemPrice');
@@ -997,6 +1126,9 @@ function attachHandlers(){
   }
 
   if(activeTab==='clients'){
+    document.getElementById('clientsSearchInput')?.addEventListener('input', (e)=>{
+      clientsTabSearch = e.target.value; preserveFocusRender();
+    });
     document.getElementById('saveClientBtn')?.addEventListener('click', async ()=>{
       const nameEl = document.getElementById('newClientName');
       const favEl = document.getElementById('newClientFav');
@@ -1049,6 +1181,7 @@ function attachHandlers(){
           if(!state.items) state.items = [];
           if(!state.tx) state.tx = {};
           if(!state.payments) state.payments = [];
+          if(!state.clientMessages) state.clientMessages = {};
           await saveState(); render();
         }
       }catch(err){ alert('백업 파일을 읽을 수 없습니다. 올바른 백업 파일인지 확인해주세요.'); }
@@ -1057,6 +1190,18 @@ function attachHandlers(){
   }
 
   if(activeTab==='balance'){
+    document.getElementById('balanceSearchInput')?.addEventListener('input', (e)=>{
+      balanceTabSearch = e.target.value; preserveFocusRender();
+    });
+    document.querySelectorAll('[data-bmethod]').forEach(b=>{
+      b.onclick = ()=>{
+        const id = b.dataset.bmethod;
+        balanceMethod[id] = b.dataset.mval;
+        document.querySelectorAll(`#bmethod-${id} button`).forEach(btn=>{
+          btn.classList.toggle('active', btn.dataset.mval===b.dataset.mval);
+        });
+      };
+    });
     document.querySelectorAll('[data-settle]').forEach(b=>{
       b.onclick = async ()=>{
         const id = b.dataset.settle;
@@ -1065,7 +1210,7 @@ function attachHandlers(){
         setTimeout(async ()=>{
           const c = getClient(id);
           if(c && c.balance>0){
-            state.payments.push({ id: uid(), clientId: c.id, amount: c.balance, date: workingDate, type:'full' });
+            state.payments.push({ id: uid(), clientId: c.id, amount: c.balance, date: workingDate, type:'full', method: balanceMethod[id]||'cash' });
             c.balance = 0;
           }
           await saveState(); render();
@@ -1080,7 +1225,7 @@ function attachHandlers(){
         if(amt<=0){ alert('입금된 금액을 입력해주세요.'); return; }
         const c = getClient(id);
         c.balance = Math.max(0, (c.balance||0) - amt);
-        state.payments.push({ id: uid(), clientId: c.id, amount: amt, date: workingDate, type:'partial' });
+        state.payments.push({ id: uid(), clientId: c.id, amount: amt, date: workingDate, type:'partial', method: balanceMethod[id]||'cash' });
         await saveState(); render();
       };
     });
@@ -1124,6 +1269,14 @@ function attachHandlers(){
     });
     document.querySelectorAll('[data-statclient]').forEach(b=>{
       b.onclick = ()=>{ selectedStatementClientId = b.dataset.statclient; render(); };
+    });
+
+    document.getElementById('saveMsgBtn')?.addEventListener('click', async ()=>{
+      const ta = document.getElementById('clientMsgInput');
+      const text = ta.value.trim();
+      if(text){ state.clientMessages[selectedStatementClientId] = text; }
+      else { delete state.clientMessages[selectedStatementClientId]; }
+      await saveState(); render();
     });
 
     document.getElementById('printBtn')?.addEventListener('click', ()=>{
@@ -1178,12 +1331,12 @@ function attachHandlers(){
   render();
   document.getElementById('workDateInput').addEventListener('change', (e)=>{
     workingDate = e.target.value || realTodayKey();
-    selectedClientId = null; cart = []; cartPayMode='credit'; editingTxId = null;
+    selectedClientId = null; cart = []; cartPayMode='credit'; cartPayMethod='cash'; editingTxId = null;
     render();
   });
   document.getElementById('gotoTodayBtn').addEventListener('click', ()=>{
     workingDate = realTodayKey();
-    selectedClientId = null; cart = []; cartPayMode='credit'; editingTxId = null;
+    selectedClientId = null; cart = []; cartPayMode='credit'; cartPayMethod='cash'; editingTxId = null;
     render();
   });
 })();
