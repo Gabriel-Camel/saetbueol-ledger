@@ -93,6 +93,7 @@
   .cl-x{color:#9a9180;font-weight:700;font-size:13px;}
   .cl-sub{min-width:62px;text-align:right;font-weight:900;font-size:13.5px;color:var(--navy);font-variant-numeric:tabular-nums;}
   .cl-del{background:none;border:none;color:#bbb3a0;font-size:18px;cursor:pointer;padding:0 2px;}
+  .sign-btn{background:var(--paper-deep);border:1.5px solid var(--rule);border-radius:7px;color:var(--navy);font-weight:900;font-size:14px;width:32px;height:32px;cursor:pointer;flex:0 0 auto;padding:0;}
 
   .tx-group{margin-bottom:14px;border:1.5px solid var(--rule);border-radius:10px;overflow:hidden;background:#fff;}
   .tx-group-head{display:flex;justify-content:space-between;align-items:center;background:var(--paper-deep);padding:9px 12px;font-weight:700;font-size:14px;color:var(--navy);}
@@ -328,6 +329,23 @@ function dateLabel(dateStr){
 function won(n){ return Math.round(Number(n||0)).toLocaleString('ko-KR') + '원'; }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
+const CHOSUNG = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+function toChosung(str){
+  let result = '';
+  for(const ch of String(str)){
+    const code = ch.charCodeAt(0) - 0xAC00;
+    if(code>=0 && code<=11171){ result += CHOSUNG[Math.floor(code/588)]; }
+    else { result += ch; }
+  }
+  return result;
+}
+function matchesQuery(name, query){
+  if(!query) return true;
+  if(name.includes(query)) return true;
+  if(/^[ㄱ-ㅎ]+$/.test(query)){ return toChosung(name).includes(query); }
+  return false;
+}
+
 function showConfirm(message){
   return new Promise(resolve=>{
     const overlay = document.getElementById('confirmOverlay');
@@ -348,6 +366,16 @@ function showConfirm(message){
   });
 }
 
+function ensureItemDefaults(){
+  if(!state.items) state.items = [];
+  state.items.forEach(it=>{
+    if((it.name==='공임' || it.name==='운임') && !it.flatRate) it.flatRate = true;
+  });
+  if(!state.items.some(it=>it.name==='할인')){
+    state.items.push({ id: uid(), name:'할인', price:0, priceDate:'', flatRate:true, isDiscount:true });
+  }
+}
+
 async function loadState(){
   try{
     if(window.storage){
@@ -363,9 +391,7 @@ async function loadState(){
   if(!state.tx) state.tx = {};
   if(!state.payments) state.payments = [];
   if(!state.clientMessages) state.clientMessages = {};
-  state.items.forEach(it=>{
-    if((it.name==='공임' || it.name==='운임') && !it.flatRate) it.flatRate = true;
-  });
+  ensureItemDefaults();
 }
 async function saveState(){
   try{
@@ -380,7 +406,7 @@ function getItem(id){ return state.items.find(i=>i.id===id); }
 function todayTx(){ return state.tx[workingDate] || []; }
 function setTodayTx(list){ state.tx[workingDate] = list; }
 function totalBalance(){ return state.clients.reduce((s,c)=>s+(c.balance||0),0); }
-function itemHasTodayPrice(it){ return it.priceDate === workingDate && it.price>0; }
+function itemHasTodayPrice(it){ return it.priceDate === workingDate && it.price!==0; }
 
 function render(){
   document.getElementById('workDateInput').value = workingDate;
@@ -399,27 +425,62 @@ function render(){
   attachHandlers();
 }
 
-function renderToday(){
+function renderTodayClientGridHtml(){
   const favs = state.clients.filter(c=>c.favorite);
-  const rest = state.clients.filter(c=>!c.favorite);
   const baseList = showAllClients ? state.clients : favs;
-  const list = todayClientSearch ? baseList.filter(c=>c.name.includes(todayClientSearch)) : baseList;
+  const list = todayClientSearch ? baseList.filter(c=>matchesQuery(c.name, todayClientSearch)) : baseList;
+  if(list.length===0){
+    return `<div class="empty">'${todayClientSearch}'와 일치하는 거래처가 없습니다.</div>`;
+  }
+  return `<div class="fav-grid">` + list.map(c=>`<button class="fav-btn ${c.id===selectedClientId?'selected':''}" data-client="${c.id}">${c.name}</button>`).join('') + `</div>`;
+}
+function todayClientCount(){
+  const favs = state.clients.filter(c=>c.favorite);
+  const baseList = showAllClients ? state.clients : favs;
+  return (todayClientSearch ? baseList.filter(c=>matchesQuery(c.name, todayClientSearch)) : baseList).length;
+}
+function attachTodayClientGridHandlers(){
+  document.querySelectorAll('[data-client]').forEach(b=>{
+    b.onclick = ()=>{ selectedClientId = b.dataset.client; cart=[]; cartPayMode='credit'; cartPayMethod='cash'; todayItemSearch=''; render(); };
+  });
+}
+function renderTodayItemGridHtml(){
+  const filteredItems = todayItemSearch ? state.items.filter(it=>matchesQuery(it.name, todayItemSearch)) : state.items;
+  if(filteredItems.length===0){
+    return `<div class="empty">'${todayItemSearch}'와 일치하는 품목이 없습니다.</div>`;
+  }
+  return `<div class="item-grid">` + filteredItems.map(it=>{
+    const has = itemHasTodayPrice(it);
+    const inCart = cart.some(l=>l.itemId===it.id);
+    const priceLabel = has ? (it.flatRate ? won(it.price) : won(it.price)+'/kg') : '시세 미입력';
+    return `<button class="item-btn ${inCart?'selected':''} ${has?'':'noprice'}" data-item="${it.id}">${it.name}<span class="p">${priceLabel}</span></button>`;
+  }).join('') + `</div>`;
+}
+function attachTodayItemGridHandlers(){
+  document.querySelectorAll('[data-item]').forEach(b=>{
+    b.onclick = ()=>{
+      const id = b.dataset.item;
+      const idx = cart.findIndex(l=>l.itemId===id);
+      if(idx>-1){ cart.splice(idx,1); }
+      else {
+        const it = getItem(id);
+        const pre = itemHasTodayPrice(it) ? it.price : (it.isDiscount ? '-' : '');
+        cart.push({ itemId:id, price:pre, qty: it.flatRate?1:'', flat: !!it.flatRate, discount: !!it.isDiscount });
+      }
+      render();
+    };
+  });
+}
 
+function renderToday(){
   let html = '';
   if(state.clients.length===0){
     html += `<div class="empty">아직 등록된 거래처가 없습니다.<br>오른쪽 아래 ＋ 버튼으로 거래처를 먼저 추가해주세요.</div>`;
   } else {
-    html += `<div class="section-title">거래처 선택 <span class="count">${list.length}</span></div>`;
+    const rest = state.clients.filter(c=>!c.favorite);
+    html += `<div class="section-title">거래처 선택 <span class="count" id="todayClientCount">${todayClientCount()}</span></div>`;
     html += `<input type="text" class="search-input" id="todayClientSearchInput" placeholder="거래처 검색" value="${todayClientSearch}">`;
-    if(list.length===0){
-      html += `<div class="empty">'${todayClientSearch}'와 일치하는 거래처가 없습니다.</div>`;
-    } else {
-      html += `<div class="fav-grid">`;
-      list.forEach(c=>{
-        html += `<button class="fav-btn ${c.id===selectedClientId?'selected':''}" data-client="${c.id}">${c.name}</button>`;
-      });
-      html += `</div>`;
-    }
+    html += `<div id="todayClientGridContainer">${renderTodayClientGridHtml()}</div>`;
     if(!showAllClients && rest.length>0){
       html += `<button class="more-link" id="showAllBtn">전체 거래처 더보기 (${rest.length}곳)</button>`;
     } else if(showAllClients && rest.length>0){
@@ -440,30 +501,24 @@ function renderToday(){
       } else {
         html += `<div class="sub-note" style="margin:0 0 8px 2px;">품목을 눌러 담으세요. 여러 개를 한 번에 담을 수 있어요. 단가에 마이너스(-)를 붙이면 그만큼 할인됩니다.</div>`;
         html += `<input type="text" class="search-input" id="todayItemSearchInput" placeholder="품목 검색" value="${todayItemSearch}">`;
-        const filteredItems = todayItemSearch ? state.items.filter(it=>it.name.includes(todayItemSearch)) : state.items;
-        html += `<div class="item-grid">`;
-        if(filteredItems.length===0){
-          html += `<div class="empty">'${todayItemSearch}'와 일치하는 품목이 없습니다.</div>`;
-        }
-        filteredItems.forEach(it=>{
-          const has = itemHasTodayPrice(it);
-          const inCart = cart.some(l=>l.itemId===it.id);
-          const priceLabel = has ? (it.flatRate ? won(it.price) : won(it.price)+'/kg') : '시세 미입력';
-          html += `<button class="item-btn ${inCart?'selected':''} ${has?'':'noprice'}" data-item="${it.id}">${it.name}<span class="p">${priceLabel}</span></button>`;
-        });
-        html += `</div>`;
+        html += `<div id="todayItemGridContainer">${renderTodayItemGridHtml()}</div>`;
 
         if(cart.length>0){
           html += `<div class="cart-list">`;
           cart.forEach((line,idx)=>{
             const it = getItem(line.itemId);
             const isFlat = !!line.flat;
+            const isDiscount = !!line.discount;
             const sub = isFlat ? (Number(line.price)||0) : (Number(line.price)||0)*(Number(line.qty)||0);
+            const priceInputHtml = isDiscount
+              ? `<input type="text" inputmode="numeric" class="cl-price" data-cartidx="${idx}" placeholder="할인 금액" value="${line.price? '-'+Math.abs(line.price) : '-'}">`
+              : `<input type="number" inputmode="numeric" class="cl-price" data-cartidx="${idx}" placeholder="${isFlat?'가격':'단가/kg'}" value="${line.price||''}">`;
             html += `
             <div class="cart-line">
-              <div class="cl-name">${it?it.name:''}${isFlat?' <span class="cl-flat-tag">고정가</span>':''}</div>
+              <div class="cl-name">${it?it.name:''}${isDiscount?' <span class="cl-flat-tag">할인</span>':(isFlat?' <span class="cl-flat-tag">고정가</span>':'')}</div>
               <div class="cl-fields">
-                <input type="number" inputmode="numeric" class="cl-price" data-cartidx="${idx}" placeholder="${isFlat?'가격':'단가/kg'}" value="${line.price||''}">
+                ${priceInputHtml}
+                ${isDiscount?'':`<button type="button" class="sign-btn" data-signcart="${idx}">±</button>`}
                 ${isFlat?'':`<span class="cl-x">×</span><input type="number" inputmode="decimal" step="0.1" class="cl-qty" data-cartidx="${idx}" placeholder="kg" value="${line.qty||''}">`}
                 <span class="cl-sub">${won(sub)}</span>
                 <button class="cl-del" data-cartdel="${idx}">×</button>
@@ -519,7 +574,12 @@ function renderToday(){
           <div class="tx-edit">
             <div class="tx-edit-name">${it?it.name:'(삭제된 품목)'} 수정</div>
             <div class="field-row">
-              <div class="field"><label>${t.flat?'가격 (원)':'단가 (원/kg)'}</label><input type="number" inputmode="numeric" id="editPrice" value="${t.price}"></div>
+              <div class="field"><label>${t.discount?'할인 금액 (원)':(t.flat?'가격 (원)':'단가 (원/kg)')}</label>
+                <div style="display:flex;gap:6px;">
+                  <input type="${t.discount?'text':'number'}" inputmode="numeric" id="editPrice" value="${t.discount? '-'+Math.abs(t.price) : t.price}" style="flex:1;">
+                  ${t.discount?'':`<button type="button" class="sign-btn" id="editPriceSignBtn">±</button>`}
+                </div>
+              </div>
               ${t.flat?'':`<div class="field"><label>수량 (kg)</label><input type="number" inputmode="decimal" step="0.1" id="editQty" value="${t.qty}"></div>`}
             </div>
             <div class="pay-toggle">
@@ -540,7 +600,7 @@ function renderToday(){
           html += `
           <div class="tx-row">
             <div class="name">${it?it.name:'(삭제된 품목)'}</div>
-            <div class="detail">${t.flat? '고정 가격' : `${won(t.price)}/kg × ${t.qty}kg`}${t.paid&&t.payMethod?' · '+(t.payMethod==='card'?'카드':'현금'):''}</div>
+            <div class="detail">${t.discount? '할인' : (t.flat? '고정 가격' : `${won(t.price)}/kg × ${t.qty}kg`)}${t.paid&&t.payMethod?' · '+(t.payMethod==='card'?'카드':'현금'):''}</div>
             <div class="right">
               <span class="total ${t.paid?'paid':'credit'}">${won(t.total)}</span>
               <button class="edit" data-editopen="${t.id}">수정</button>
@@ -571,6 +631,12 @@ function renderPrices(){
   } else {
     state.items.forEach((it,idx)=>{
       const fresh = itemHasTodayPrice(it);
+      const statusText = it.isDiscount
+        ? (fresh ? '오늘 할인 적용됨 ('+won(it.price)+')' : '할인 미적용')
+        : (it.flatRate?'고정 가격 · ':'') + (fresh? '오늘 시세 입력됨' : (it.price? '어제 '+won(it.price)+' · 오늘 미입력' : '시세 미입력'));
+      const priceInputHtml = it.isDiscount
+        ? `<input type="text" inputmode="numeric" placeholder="할인 금액 (원)" value="${it.price? '-'+Math.abs(it.price) : '-'}" data-priceitem="${it.id}">`
+        : `<input type="number" inputmode="numeric" placeholder="${it.flatRate?'오늘 가격 (원)':'오늘 단가 (원/kg)'}" value="${fresh?it.price:''}" data-priceitem="${it.id}">`;
       html += `
       <div class="item-row">
         <div class="top-line">
@@ -581,15 +647,44 @@ function renderPrices(){
           <input type="text" class="iname-input" data-nameitem="${it.id}" value="${it.name}">
           <button class="icon-btn" data-delitem="${it.id}">삭제</button>
         </div>
-        <div class="istatus ${fresh?'fresh':''}">${it.flatRate?'고정 가격 · ':''}${fresh? '오늘 시세 입력됨' : (it.price? '어제 '+won(it.price)+' · 오늘 미입력' : '시세 미입력')}</div>
+        <div class="istatus ${fresh?'fresh':''}">${statusText}</div>
         <div class="item-price-row">
-          <input type="number" inputmode="numeric" placeholder="${it.flatRate?'오늘 가격 (원)':'오늘 단가 (원/kg)'}" value="${fresh?it.price:''}" data-priceitem="${it.id}">
+          ${priceInputHtml}
           ${(!fresh && it.price)?`<button class="same-btn" data-samebtn="${it.id}">어제와 동일</button>`:''}
         </div>
       </div>`;
     });
   }
   return html;
+}
+
+function renderClientsListHtml(){
+  const sorted = state.clients.slice().sort((a,b)=> (b.favorite-a.favorite));
+  const filtered = clientsTabSearch ? sorted.filter(c=>matchesQuery(c.name, clientsTabSearch)) : sorted;
+  if(filtered.length===0){
+    return `<div class="empty">'${clientsTabSearch}'와 일치하는 거래처가 없습니다.</div>`;
+  }
+  return filtered.map(c=>`
+      <div class="client-row">
+        <button class="star ${c.favorite?'on':''}" data-fav="${c.id}">★</button>
+        <div style="flex:1;">
+          <div class="cname">${c.name}</div>
+          <div class="ctag ${c.balance>0?'has-bal':''}">${c.favorite?'자주 거래':'가끔 거래'}${c.balance>0?` · 미수금 ${won(c.balance)}`:' · 미수금 없음'}</div>
+        </div>
+        <button class="icon-btn" data-delclient="${c.id}">삭제</button>
+      </div>`).join('');
+}
+function attachClientRowHandlers(){
+  document.querySelectorAll('[data-fav]').forEach(b=>{
+    b.onclick = async ()=>{ const c=getClient(b.dataset.fav); c.favorite=!c.favorite; await saveState(); render(); };
+  });
+  document.querySelectorAll('[data-delclient]').forEach(b=>{
+    b.onclick = async ()=>{
+      if(!confirm('이 거래처를 삭제할까요? 거래 내역은 남아있지만 거래처 목록에서 사라집니다.')) return;
+      state.clients = state.clients.filter(c=>c.id!==b.dataset.delclient);
+      await saveState(); render();
+    };
+  });
 }
 
 function renderClients(){
@@ -605,22 +700,7 @@ function renderClients(){
     html += `<div class="empty">＋ 버튼을 눌러 첫 거래처를 등록해보세요.</div>`;
   } else {
     html += `<input type="text" class="search-input" id="clientsSearchInput" placeholder="거래처 검색" value="${clientsTabSearch}">`;
-    const sorted = state.clients.slice().sort((a,b)=> (b.favorite-a.favorite));
-    const filtered = clientsTabSearch ? sorted.filter(c=>c.name.includes(clientsTabSearch)) : sorted;
-    if(filtered.length===0){
-      html += `<div class="empty">'${clientsTabSearch}'와 일치하는 거래처가 없습니다.</div>`;
-    }
-    filtered.forEach(c=>{
-      html += `
-      <div class="client-row">
-        <button class="star ${c.favorite?'on':''}" data-fav="${c.id}">★</button>
-        <div style="flex:1;">
-          <div class="cname">${c.name}</div>
-          <div class="ctag ${c.balance>0?'has-bal':''}">${c.favorite?'자주 거래':'가끔 거래'}${c.balance>0?` · 미수금 ${won(c.balance)}`:' · 미수금 없음'}</div>
-        </div>
-        <button class="icon-btn" data-delclient="${c.id}">삭제</button>
-      </div>`;
-    });
+    html += `<div id="clientsListContainer">${renderClientsListHtml()}</div>`;
   }
 
   html += `
@@ -632,19 +712,13 @@ function renderClients(){
   return html;
 }
 
-function renderBalance(){
+function renderBalanceListHtml(){
   const withBalance = state.clients.filter(c=>c.balance>0).sort((a,b)=>b.balance-a.balance);
-  let html = `<div class="total-out"><div class="l">전체 미수금 합계</div><div class="v">${won(totalBalance())}</div></div>`;
-  if(withBalance.length===0){
-    html += `<div class="empty">현재 미수금이 있는 거래처가 없습니다.</div>`;
-  } else {
-    html += `<input type="text" class="search-input" id="balanceSearchInput" placeholder="거래처 검색" value="${balanceTabSearch}">`;
-    const filteredBalance = balanceTabSearch ? withBalance.filter(c=>c.name.includes(balanceTabSearch)) : withBalance;
-    if(filteredBalance.length===0){
-      html += `<div class="empty">'${balanceTabSearch}'와 일치하는 거래처가 없습니다.</div>`;
-    }
-    filteredBalance.forEach(c=>{
-      html += `
+  const filteredBalance = balanceTabSearch ? withBalance.filter(c=>matchesQuery(c.name, balanceTabSearch)) : withBalance;
+  if(filteredBalance.length===0){
+    return `<div class="empty">'${balanceTabSearch}'와 일치하는 거래처가 없습니다.</div>`;
+  }
+  return filteredBalance.map(c=>`
       <div class="balance-row" id="brow-${c.id}">
         <div class="bname">${c.name}</div>
         <div class="bamt">${won(c.balance)}</div>
@@ -654,12 +728,67 @@ function renderBalance(){
         </div>
         <div class="adjust-row">
           <input type="number" inputmode="numeric" placeholder="입금된 금액" id="pay-${c.id}">
+          <button type="button" class="sign-btn" data-paysign="${c.id}">±</button>
           <button data-partial="${c.id}">입금 반영</button>
         </div>
         <button class="settle" data-settle="${c.id}">전액 정산 완료로 표시</button>
         <div class="stamp-mark" id="stamp-${c.id}">완</div>
-      </div>`;
-    });
+      </div>`).join('');
+}
+function attachBalanceRowHandlers(){
+  document.querySelectorAll('[data-bmethod]').forEach(b=>{
+    b.onclick = ()=>{
+      const id = b.dataset.bmethod;
+      balanceMethod[id] = b.dataset.mval;
+      document.querySelectorAll(`#bmethod-${id} button`).forEach(btn=>{
+        btn.classList.toggle('active', btn.dataset.mval===b.dataset.mval);
+      });
+    };
+  });
+  document.querySelectorAll('[data-settle]').forEach(b=>{
+    b.onclick = async ()=>{
+      const id = b.dataset.settle;
+      const stampEl = document.getElementById('stamp-'+id);
+      stampEl?.classList.add('show');
+      setTimeout(async ()=>{
+        const c = getClient(id);
+        if(c && c.balance>0){
+          state.payments.push({ id: uid(), clientId: c.id, amount: c.balance, date: workingDate, type:'full', method: balanceMethod[id]||'cash' });
+          c.balance = 0;
+        }
+        await saveState(); render();
+      }, 550);
+    };
+  });
+  document.querySelectorAll('[data-paysign]').forEach(b=>{
+    b.onclick = ()=>{
+      const id = b.dataset.paysign;
+      const inp = document.getElementById('pay-'+id);
+      if(inp){ inp.value = inp.value ? String(-(Number(inp.value)||0)) : '-'; }
+    };
+  });
+  document.querySelectorAll('[data-partial]').forEach(b=>{
+    b.onclick = async ()=>{
+      const id = b.dataset.partial;
+      const input = document.getElementById('pay-'+id);
+      const amt = Number(input.value||0);
+      if(amt===0){ alert('입금된 금액을 입력해주세요.'); return; }
+      const c = getClient(id);
+      c.balance = Math.max(0, (c.balance||0) - amt);
+      state.payments.push({ id: uid(), clientId: c.id, amount: amt, date: workingDate, type:'partial', method: balanceMethod[id]||'cash' });
+      await saveState(); render();
+    };
+  });
+}
+
+function renderBalance(){
+  const withBalance = state.clients.filter(c=>c.balance>0).sort((a,b)=>b.balance-a.balance);
+  let html = `<div class="total-out"><div class="l">전체 미수금 합계</div><div class="v">${won(totalBalance())}</div></div>`;
+  if(withBalance.length===0){
+    html += `<div class="empty">현재 미수금이 있는 거래처가 없습니다.</div>`;
+  } else {
+    html += `<input type="text" class="search-input" id="balanceSearchInput" placeholder="거래처 검색" value="${balanceTabSearch}">`;
+    html += `<div id="balanceListContainer">${renderBalanceListHtml()}</div>`;
   }
 
   html += `<div class="section-title">입금 내역</div>`;
@@ -903,14 +1032,18 @@ function attachHandlers(){
 
   if(activeTab==='today'){
     document.getElementById('todayClientSearchInput')?.addEventListener('input', (e)=>{
-      todayClientSearch = e.target.value; preserveFocusRender();
+      todayClientSearch = e.target.value;
+      const container = document.getElementById('todayClientGridContainer');
+      if(container){ container.innerHTML = renderTodayClientGridHtml(); attachTodayClientGridHandlers(); }
+      const countEl = document.getElementById('todayClientCount');
+      if(countEl){ countEl.textContent = todayClientCount(); }
     });
     document.getElementById('todayItemSearchInput')?.addEventListener('input', (e)=>{
-      todayItemSearch = e.target.value; preserveFocusRender();
+      todayItemSearch = e.target.value;
+      const container = document.getElementById('todayItemGridContainer');
+      if(container){ container.innerHTML = renderTodayItemGridHtml(); attachTodayItemGridHandlers(); }
     });
-    document.querySelectorAll('[data-client]').forEach(b=>{
-      b.onclick = ()=>{ selectedClientId = b.dataset.client; cart=[]; cartPayMode='credit'; cartPayMethod='cash'; todayItemSearch=''; render(); };
-    });
+    attachTodayClientGridHandlers();
     document.getElementById('showAllBtn')?.addEventListener('click', ()=>{ showAllClients=true; render(); });
     document.getElementById('hideAllBtn')?.addEventListener('click', ()=>{ showAllClients=false; render(); });
 
@@ -921,29 +1054,30 @@ function attachHandlers(){
       };
     });
 
-    document.querySelectorAll('[data-item]').forEach(b=>{
-      b.onclick = ()=>{
-        const id = b.dataset.item;
-        const idx = cart.findIndex(l=>l.itemId===id);
-        if(idx>-1){ cart.splice(idx,1); }
-        else {
-          const it = getItem(id);
-          const pre = itemHasTodayPrice(it) ? it.price : '';
-          cart.push({ itemId:id, price:pre, qty: it.flatRate?1:'', flat: !!it.flatRate });
-        }
-        render();
-      };
-    });
+    attachTodayItemGridHandlers();
 
     document.querySelectorAll('[data-cartdel]').forEach(b=>{
       b.onclick = ()=>{ cart.splice(Number(b.dataset.cartdel),1); render(); };
     });
 
+    document.querySelectorAll('[data-signcart]').forEach(b=>{
+      b.onclick = ()=>{
+        const idx = Number(b.dataset.signcart);
+        const inp = document.querySelector(`.cl-price[data-cartidx="${idx}"]`);
+        if(inp){
+          inp.value = inp.value ? String(-(Number(inp.value)||0)) : '-';
+          inp.dispatchEvent(new Event('input'));
+        }
+      };
+    });
     document.querySelectorAll('.cl-price, .cl-qty').forEach(inp=>{
       inp.addEventListener('input', ()=>{
         const idx = Number(inp.dataset.cartidx);
-        if(inp.classList.contains('cl-price')) cart[idx].price = inp.value;
-        else cart[idx].qty = inp.value;
+        if(inp.classList.contains('cl-price')){
+          cart[idx].price = cart[idx].discount ? -Math.abs(Number(inp.value)||0) : inp.value;
+        } else {
+          cart[idx].qty = inp.value;
+        }
         const row = inp.closest('.cart-line');
         const subEl = row?.querySelector('.cl-sub');
         const p = Number(cart[idx].price)||0;
@@ -978,7 +1112,7 @@ function attachHandlers(){
         const total = l.flat ? Math.round(p) : Math.round(p*q);
         batchTotal += total;
         // 단가를 여기서 고치더라도 품목의 기본(오늘) 시세는 바꾸지 않음 - 이 거래처에만 적용
-        list.push({ id: uid(), groupId, clientId: c.id, itemId: l.itemId, price:p, qty:q, total, paid: isPaid, payMethod: isPaid?cartPayMethod:null, flat: !!l.flat });
+        list.push({ id: uid(), groupId, clientId: c.id, itemId: l.itemId, price:p, qty:q, total, paid: isPaid, payMethod: isPaid?cartPayMethod:null, flat: !!l.flat, discount: !!l.discount });
       });
       setTodayTx(list);
       if(cartPayMode==='credit'){ c.balance = (c.balance||0) + batchTotal; }
@@ -1014,6 +1148,10 @@ function attachHandlers(){
       let editPayMethod = 'cash';
       const curTx = todayTx().find(x=>x.id===editingTxId);
       if(curTx){ editPayMode = curTx.paid ? 'cash' : 'credit'; editPayMethod = curTx.payMethod || 'cash'; }
+      document.getElementById('editPriceSignBtn')?.addEventListener('click', ()=>{
+        const inp = document.getElementById('editPrice');
+        if(inp){ inp.value = inp.value ? String(-(Number(inp.value)||0)) : '-'; }
+      });
       const editPayCash = document.getElementById('editPayCash');
       const editPayCredit = document.getElementById('editPayCredit');
       const editMethodToggle = document.getElementById('editMethodToggle');
@@ -1034,7 +1172,8 @@ function attachHandlers(){
         const list = todayTx();
         const t = list.find(x=>x.id===editingTxId);
         if(!t) return;
-        const newPrice = Number(document.getElementById('editPrice').value||0);
+        const rawPrice = Number(document.getElementById('editPrice').value||0);
+        const newPrice = t.discount ? -Math.abs(rawPrice) : rawPrice;
         const newQty = t.flat ? 1 : Math.round(Number(document.getElementById('editQty').value||0)*10)/10;
         if(newPrice===0 || (!t.flat && newQty<=0)){ alert('단가와 수량을 입력해주세요.'); return; }
         const newPaid = editPayMode==='cash';
@@ -1083,9 +1222,10 @@ function attachHandlers(){
       const name = nameEl.value.trim();
       if(!name){ alert('품목 이름을 입력해주세요.'); return; }
       const priceVal = Number(priceEl.value||0);
-      const isFlat = flatEl.checked || name==='공임' || name==='운임';
-      const newItem = { id: uid(), name, price:0, priceDate:'', flatRate: isFlat };
-      if(priceVal>0){ newItem.price = priceVal; newItem.priceDate = workingDate; }
+      const isDiscount = name==='할인';
+      const isFlat = flatEl.checked || name==='공임' || name==='운임' || isDiscount;
+      const newItem = { id: uid(), name, price:0, priceDate:'', flatRate: isFlat, isDiscount };
+      if(priceVal!==0){ newItem.price = isDiscount ? -Math.abs(priceVal) : priceVal; newItem.priceDate = workingDate; }
       state.items.push(newItem);
       state._showAddItem = false;
       await saveState(); render();
@@ -1093,8 +1233,12 @@ function attachHandlers(){
     document.querySelectorAll('[data-priceitem]').forEach(inp=>{
       inp.addEventListener('change', async ()=>{
         const it = getItem(inp.dataset.priceitem);
-        const v = Number(inp.value||0);
-        if(v>0){ it.price=v; it.priceDate=workingDate; await saveState(); render(); }
+        const raw = Number(inp.value||0);
+        if(it.isDiscount){
+          if(raw!==0){ it.price = -Math.abs(raw); it.priceDate = workingDate; await saveState(); render(); }
+        } else {
+          if(raw>0){ it.price=raw; it.priceDate=workingDate; await saveState(); render(); }
+        }
       });
     });
     document.querySelectorAll('[data-samebtn]').forEach(b=>{
@@ -1111,6 +1255,7 @@ function attachHandlers(){
         if(!newName){ inp.value = it.name; return; }
         it.name = newName;
         if(newName==='공임' || newName==='운임') it.flatRate = true;
+        if(newName==='할인'){ it.flatRate = true; it.isDiscount = true; if(it.price>0) it.price = -Math.abs(it.price); }
         await saveState(); render();
       });
     });
@@ -1127,7 +1272,9 @@ function attachHandlers(){
 
   if(activeTab==='clients'){
     document.getElementById('clientsSearchInput')?.addEventListener('input', (e)=>{
-      clientsTabSearch = e.target.value; preserveFocusRender();
+      clientsTabSearch = e.target.value;
+      const container = document.getElementById('clientsListContainer');
+      if(container){ container.innerHTML = renderClientsListHtml(); attachClientRowHandlers(); }
     });
     document.getElementById('saveClientBtn')?.addEventListener('click', async ()=>{
       const nameEl = document.getElementById('newClientName');
@@ -1138,16 +1285,7 @@ function attachHandlers(){
       state._showAddForm = false;
       await saveState(); render();
     });
-    document.querySelectorAll('[data-fav]').forEach(b=>{
-      b.onclick = async ()=>{ const c=getClient(b.dataset.fav); c.favorite=!c.favorite; await saveState(); render(); };
-    });
-    document.querySelectorAll('[data-delclient]').forEach(b=>{
-      b.onclick = async ()=>{
-        if(!confirm('이 거래처를 삭제할까요? 거래 내역은 남아있지만 거래처 목록에서 사라집니다.')) return;
-        state.clients = state.clients.filter(c=>c.id!==b.dataset.delclient);
-        await saveState(); render();
-      };
-    });
+    attachClientRowHandlers();
 
     document.getElementById('backupBtn')?.addEventListener('click', async ()=>{
       const dateStr = realTodayKey();
@@ -1182,6 +1320,7 @@ function attachHandlers(){
           if(!state.tx) state.tx = {};
           if(!state.payments) state.payments = [];
           if(!state.clientMessages) state.clientMessages = {};
+          ensureItemDefaults();
           await saveState(); render();
         }
       }catch(err){ alert('백업 파일을 읽을 수 없습니다. 올바른 백업 파일인지 확인해주세요.'); }
@@ -1191,44 +1330,11 @@ function attachHandlers(){
 
   if(activeTab==='balance'){
     document.getElementById('balanceSearchInput')?.addEventListener('input', (e)=>{
-      balanceTabSearch = e.target.value; preserveFocusRender();
+      balanceTabSearch = e.target.value;
+      const container = document.getElementById('balanceListContainer');
+      if(container){ container.innerHTML = renderBalanceListHtml(); attachBalanceRowHandlers(); }
     });
-    document.querySelectorAll('[data-bmethod]').forEach(b=>{
-      b.onclick = ()=>{
-        const id = b.dataset.bmethod;
-        balanceMethod[id] = b.dataset.mval;
-        document.querySelectorAll(`#bmethod-${id} button`).forEach(btn=>{
-          btn.classList.toggle('active', btn.dataset.mval===b.dataset.mval);
-        });
-      };
-    });
-    document.querySelectorAll('[data-settle]').forEach(b=>{
-      b.onclick = async ()=>{
-        const id = b.dataset.settle;
-        const stampEl = document.getElementById('stamp-'+id);
-        stampEl?.classList.add('show');
-        setTimeout(async ()=>{
-          const c = getClient(id);
-          if(c && c.balance>0){
-            state.payments.push({ id: uid(), clientId: c.id, amount: c.balance, date: workingDate, type:'full', method: balanceMethod[id]||'cash' });
-            c.balance = 0;
-          }
-          await saveState(); render();
-        }, 550);
-      };
-    });
-    document.querySelectorAll('[data-partial]').forEach(b=>{
-      b.onclick = async ()=>{
-        const id = b.dataset.partial;
-        const input = document.getElementById('pay-'+id);
-        const amt = Number(input.value||0);
-        if(amt<=0){ alert('입금된 금액을 입력해주세요.'); return; }
-        const c = getClient(id);
-        c.balance = Math.max(0, (c.balance||0) - amt);
-        state.payments.push({ id: uid(), clientId: c.id, amount: amt, date: workingDate, type:'partial', method: balanceMethod[id]||'cash' });
-        await saveState(); render();
-      };
-    });
+    attachBalanceRowHandlers();
     document.querySelectorAll('[data-undopay]').forEach(b=>{
       b.onclick = async ()=>{
         const ok = await showConfirm('이 입금 처리를 취소하시겠습니까? 미수금이 다시 늘어납니다.');
