@@ -125,6 +125,9 @@
   .st-row.total{font-weight:900;font-size:15px;color:var(--stamp);border-top:1px dashed var(--rule);margin-top:4px;padding-top:8px;}
   .st-row.grand{font-weight:900;font-size:17px;color:var(--navy);border-top:2px solid var(--navy);margin-top:6px;padding-top:10px;}
   .st-bank{text-align:center;font-size:12.5px;font-weight:700;color:var(--navy);margin-top:16px;padding-top:12px;border-top:1.5px dashed var(--rule);}
+  .chart-wrap{margin:14px 0;padding-top:12px;border-top:1.5px dashed var(--rule);}
+  .chart-title{font-family:'Noto Serif KR',serif;font-weight:700;font-size:13px;color:var(--navy);margin-bottom:6px;}
+  .chart-wrap canvas{width:100%;height:auto;display:block;}
   .st-message{margin-top:14px;padding:12px 14px;background:var(--paper-deep);border-radius:9px;font-size:13px;color:var(--ink);line-height:1.6;white-space:pre-wrap;}
   .msg-input{width:100%;min-height:64px;font-size:14px;padding:11px;border:2px solid var(--rule);border-radius:9px;background:#fff;font-family:'Noto Sans KR',sans-serif;resize:vertical;margin-bottom:6px;color:var(--ink);}
   .st-foot{text-align:center;font-size:11px;color:#9a9180;margin-top:14px;}
@@ -292,7 +295,8 @@ let selectedStatementClientId = null;
 let statementPeriod = '1w'; // '1w','1m','3m','6m','1y','custom'
 let statementCustomStart = null;
 let statementCustomEnd = null;
-let statementView = 'client'; // 'client' | 'summary'
+let statementView = 'client'; // 'client' | 'summary' | 'chart'
+let chartClientId = null; // null = 전체 거래처 기준
 let editingTxId = null;
 let balanceMethod = {}; // clientId -> 'cash' | 'card' (미수금 탭에서 입금/정산 시 선택)
 let clientsTabSearch = '';
@@ -849,6 +853,93 @@ function txInRange(start, end, clientId){
 function paymentsInRange(start, end, clientId){
   return (state.payments||[]).filter(p=> p.date>=start && p.date<=end && (!clientId || p.clientId===clientId));
 }
+
+function buildSalesSeries(txs, start, end){
+  const startDate = new Date(start+'T00:00:00');
+  const endDate = new Date(end+'T00:00:00');
+  const totalDays = Math.max(1, Math.round((endDate-startDate)/86400000)+1);
+  let granularity = 'day';
+  if(totalDays>180) granularity = 'month';
+  else if(totalDays>31) granularity = 'week';
+
+  const sums = {};
+  txs.forEach(t=>{ sums[t.date] = (sums[t.date]||0) + t.total; });
+
+  const series = [];
+  if(granularity==='day'){
+    for(let i=0;i<totalDays;i++){
+      const d = new Date(startDate); d.setDate(d.getDate()+i);
+      const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+      series.push({ label: `${d.getMonth()+1}/${d.getDate()}`, value: sums[key]||0 });
+    }
+  } else if(granularity==='week'){
+    let cur = new Date(startDate);
+    while(cur<=endDate){
+      const weekStart = new Date(cur);
+      let weekTotal = 0;
+      for(let j=0;j<7 && cur<=endDate;j++){
+        const key = cur.getFullYear()+'-'+String(cur.getMonth()+1).padStart(2,'0')+'-'+String(cur.getDate()).padStart(2,'0');
+        weekTotal += sums[key]||0;
+        cur.setDate(cur.getDate()+1);
+      }
+      series.push({ label: `${weekStart.getMonth()+1}/${weekStart.getDate()}`, value: weekTotal });
+    }
+  } else {
+    let cur = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+    while(cur<=endDate){
+      const y = cur.getFullYear(), m = cur.getMonth();
+      let monthTotal = 0;
+      Object.keys(sums).forEach(key=>{
+        const parts = key.split('-');
+        if(Number(parts[0])===y && Number(parts[1])===m+1) monthTotal += sums[key];
+      });
+      series.push({ label: `${m+1}월`, value: monthTotal });
+      cur = new Date(y, m+1, 1);
+    }
+  }
+  return series;
+}
+
+function drawBarChart(canvas, series){
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0,0,W,H);
+  const max = Math.max(1, ...series.map(s=>s.value), 1);
+  const padding = { top:22, right:10, bottom:26, left:10 };
+  const chartW = W - padding.left - padding.right;
+  const chartH = H - padding.top - padding.bottom;
+  const n = Math.max(1, series.length);
+  const barGap = n>40 ? 1 : (n>20 ? 2 : 4);
+  const barW = Math.max(1, chartW/n - barGap);
+
+  ctx.strokeStyle = '#C9BCA0';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padding.left, H-padding.bottom);
+  ctx.lineTo(W-padding.right, H-padding.bottom);
+  ctx.stroke();
+
+  const labelEvery = Math.max(1, Math.ceil(n/10));
+  series.forEach((s,i)=>{
+    const x = padding.left + i*(barW+barGap);
+    const barH = max>0 ? (s.value/max) * chartH : 0;
+    const y = H - padding.bottom - barH;
+    ctx.fillStyle = s.value<0 ? '#BD3A2E' : '#1C3A4B';
+    ctx.fillRect(x, y, barW, Math.max(1,barH));
+    if(i%labelEvery===0 || i===series.length-1){
+      ctx.fillStyle = '#9a9180';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(s.label, x+barW/2, H-padding.bottom+13);
+    }
+  });
+  ctx.fillStyle = '#1C3A4B';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(won(max)+' (최고)', padding.left, padding.top-7);
+}
+
 function shopHeaderHtml(){
   return `
         <div class="st-head">
@@ -891,7 +982,47 @@ function renderStatement(){
   html += `<div class="view-toggle no-print">
     <button class="${statementView==='client'?'active':''}" data-view="client">거래처별 명세서</button>
     <button class="${statementView==='summary'?'active':''}" data-view="summary">전체 요약</button>
+    <button class="${statementView==='chart'?'active':''}" data-view="chart">그래프만 보기</button>
   </div>`;
+
+  if(statementView==='chart'){
+    const activeClientIds = new Set(txInRange(rangeStart, rangeEnd).map(t=>t.clientId));
+    const visibleClients = state.clients.filter(c=>activeClientIds.has(c.id));
+
+    html += `<div class="section-title no-print">기준 선택</div>`;
+    html += `<div class="fav-grid no-print">`;
+    html += `<button class="fav-btn ${!chartClientId?'selected':''}" data-chartclient="">전체 거래처</button>`;
+    visibleClients.forEach(c=>{
+      html += `<button class="fav-btn ${c.id===chartClientId?'selected':''}" data-chartclient="${c.id}">${c.name}</button>`;
+    });
+    html += `</div>`;
+
+    const chartTxs = chartClientId ? txInRange(rangeStart, rangeEnd, chartClientId) : txInRange(rangeStart, rangeEnd);
+    const chartPeriodTotal = chartTxs.reduce((s,t)=>s+t.total,0);
+    const chartClient = chartClientId ? getClient(chartClientId) : null;
+
+    html += `
+    <div class="statement" id="statementPrintArea">
+      ${shopHeaderHtml()}
+      <div class="st-meta">
+        <div><b>기준</b> ${chartClient ? chartClient.name : '전체 거래처'}</div>
+        <div><b>기간</b> ${dateLabel(rangeStart)} ~ ${dateLabel(rangeEnd)}</div>
+      </div>
+      <div class="chart-wrap" style="border-top:none;margin-top:4px;">
+        <div class="chart-title">매출 추이</div>
+        <canvas id="salesChart" width="600" height="260"></canvas>
+      </div>
+      <div class="st-row grand" style="margin-top:10px;"><span>기간 합계</span><span>${won(chartPeriodTotal)}</span></div>
+      <div class="st-foot">좋은 수산물의 기준, 샛별수산</div>
+    </div>
+
+    <div class="no-print">
+      <button class="btn-main" id="printBtn">무선 프린터로 인쇄</button>
+      <button class="btn-main share-btn" id="shareBtn">사진으로 문자·이메일 보내기</button>
+      <button class="btn-ghost" id="downloadBtn">사진 파일로만 저장하기</button>
+    </div>`;
+    return html;
+  }
 
   if(statementView==='client'){
     const activeClientIds = new Set(txInRange(rangeStart, rangeEnd).map(t=>t.clientId));
@@ -950,6 +1081,10 @@ function renderStatement(){
             <div class="st-row total"><span>현재 총 잔액</span><span>${won(c.balance||0)}</span></div>
             <div class="st-row grand"><span>거래·잔액 총 합계</span><span>${won(grandTotal)}</span></div>
           </div>
+          <div class="chart-wrap">
+            <div class="chart-title">기간 매출 추이</div>
+            <canvas id="salesChart" width="600" height="190"></canvas>
+          </div>
           <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
           ${selectedStatementClientId && state.clientMessages[selectedStatementClientId] ? `<div class="st-message">${state.clientMessages[selectedStatementClientId].replace(/\n/g,'<br>')}</div>` : ''}
           <div class="st-foot">좋은 수산물의 기준, 샛별수산</div>
@@ -998,6 +1133,10 @@ function renderStatement(){
         <div class="st-row sub" style="color:var(--green);"><span>· 입금/정산액 (현금 ${won(paymentsCash)} · 카드 ${won(paymentsCard)})</span><span>${won(paymentsTotal)}</span></div>
         <div class="st-row total"><span>전체 미수금 합계 (현재)</span><span>${won(totalBalance())}</span></div>
       </div>
+      <div class="chart-wrap">
+        <div class="chart-title">기간 매출 추이</div>
+        <canvas id="salesChart" width="600" height="190"></canvas>
+      </div>
       <div class="section-title" style="margin-top:14px;">거래처별 합계</div>
       <table class="st-table">
         <thead><tr><th>거래처</th><th class="num">거래 합계</th></tr></thead>
@@ -1023,7 +1162,7 @@ function attachHandlers(){
   fab.style.display = (activeTab==='clients' || activeTab==='prices') ? 'block' : 'none';
 
   document.querySelectorAll('nav.tabs button').forEach(b=>{
-    b.onclick = ()=>{ activeTab=b.dataset.tab; selectedClientId=null; cart=[]; cartPayMode='credit'; cartPayMethod='cash'; selectedStatementClientId=null; editingTxId=null; todayClientSearch=''; todayItemSearch=''; clientsTabSearch=''; balanceTabSearch=''; render(); };
+    b.onclick = ()=>{ activeTab=b.dataset.tab; selectedClientId=null; cart=[]; cartPayMode='credit'; cartPayMethod='cash'; selectedStatementClientId=null; chartClientId=null; editingTxId=null; todayClientSearch=''; todayItemSearch=''; clientsTabSearch=''; balanceTabSearch=''; render(); };
   });
   fab.onclick = ()=>{
     if(activeTab==='prices'){ state._showAddItem = true; render(); setTimeout(()=>document.getElementById('newItemName')?.focus(),50); }
@@ -1360,22 +1499,35 @@ function attachHandlers(){
           const [s,e] = periodToRange('1m');
           statementCustomStart = s; statementCustomEnd = e;
         }
-        selectedStatementClientId = null;
+        selectedStatementClientId = null; chartClientId = null;
         render();
       };
     });
     document.getElementById('customStartInput')?.addEventListener('change', (e)=>{
-      statementCustomStart = e.target.value; selectedStatementClientId = null; render();
+      statementCustomStart = e.target.value; selectedStatementClientId = null; chartClientId = null; render();
     });
     document.getElementById('customEndInput')?.addEventListener('change', (e)=>{
-      statementCustomEnd = e.target.value; selectedStatementClientId = null; render();
+      statementCustomEnd = e.target.value; selectedStatementClientId = null; chartClientId = null; render();
     });
     document.querySelectorAll('[data-view]').forEach(b=>{
-      b.onclick = ()=>{ statementView = b.dataset.view; selectedStatementClientId = null; render(); };
+      b.onclick = ()=>{ statementView = b.dataset.view; selectedStatementClientId = null; chartClientId = null; render(); };
     });
     document.querySelectorAll('[data-statclient]').forEach(b=>{
       b.onclick = ()=>{ selectedStatementClientId = b.dataset.statclient; render(); };
     });
+    document.querySelectorAll('[data-chartclient]').forEach(b=>{
+      b.onclick = ()=>{ chartClientId = b.dataset.chartclient || null; render(); };
+    });
+
+    const chartCanvas = document.getElementById('salesChart');
+    if(chartCanvas){
+      const [cs, ce] = periodToRange(statementPeriod);
+      let chartTxs;
+      if(statementView==='summary') chartTxs = txInRange(cs, ce);
+      else if(statementView==='chart') chartTxs = chartClientId ? txInRange(cs, ce, chartClientId) : txInRange(cs, ce);
+      else chartTxs = txInRange(cs, ce, selectedStatementClientId);
+      drawBarChart(chartCanvas, buildSalesSeries(chartTxs, cs, ce));
+    }
 
     document.getElementById('saveMsgBtn')?.addEventListener('click', async ()=>{
       const ta = document.getElementById('clientMsgInput');
@@ -1397,6 +1549,10 @@ function attachHandlers(){
 
     function statementLabel(){
       if(statementView==='summary') return '전체요약';
+      if(statementView==='chart'){
+        const cc = chartClientId ? getClient(chartClientId) : null;
+        return '그래프_' + (cc ? cc.name : '전체');
+      }
       const c = getClient(selectedStatementClientId);
       return c ? c.name : '거래처';
     }
