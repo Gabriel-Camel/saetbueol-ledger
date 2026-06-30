@@ -1081,10 +1081,6 @@ function renderStatement(){
             <div class="st-row total"><span>현재 총 잔액</span><span>${won(c.balance||0)}</span></div>
             <div class="st-row grand"><span>거래·잔액 총 합계</span><span>${won(grandTotal)}</span></div>
           </div>
-          <div class="chart-wrap">
-            <div class="chart-title">기간 매출 추이</div>
-            <canvas id="salesChart" width="600" height="190"></canvas>
-          </div>
           <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
           ${selectedStatementClientId && state.clientMessages[selectedStatementClientId] ? `<div class="st-message">${state.clientMessages[selectedStatementClientId].replace(/\n/g,'<br>')}</div>` : ''}
           <div class="st-foot">좋은 수산물의 기준, 샛별수산</div>
