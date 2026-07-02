@@ -521,9 +521,9 @@ function renderToday(){
             <div class="cart-line">
               <div class="cl-name">${it?it.name:''}${isDiscount?' <span class="cl-flat-tag">할인</span>':(isFlat?' <span class="cl-flat-tag">고정가</span>':'')}</div>
               <div class="cl-fields">
+                ${isFlat?'':`<input type="number" inputmode="decimal" step="0.1" class="cl-qty" data-cartidx="${idx}" placeholder="kg" value="${line.qty||''}"><span class="cl-x">×</span>`}
                 ${priceInputHtml}
                 ${isDiscount?'':`<button type="button" class="sign-btn" data-signcart="${idx}">±</button>`}
-                ${isFlat?'':`<span class="cl-x">×</span><input type="number" inputmode="decimal" step="0.1" class="cl-qty" data-cartidx="${idx}" placeholder="kg" value="${line.qty||''}">`}
                 <span class="cl-sub">${won(sub)}</span>
                 <button class="cl-del" data-cartdel="${idx}">×</button>
               </div>
@@ -578,13 +578,13 @@ function renderToday(){
           <div class="tx-edit">
             <div class="tx-edit-name">${it?it.name:'(삭제된 품목)'} 수정</div>
             <div class="field-row">
+              ${t.flat?'':`<div class="field"><label>수량 (kg)</label><input type="number" inputmode="decimal" step="0.1" id="editQty" value="${t.qty}"></div>`}
               <div class="field"><label>${t.discount?'할인 금액 (원)':(t.flat?'가격 (원)':'단가 (원/kg)')}</label>
                 <div style="display:flex;gap:6px;">
                   <input type="${t.discount?'text':'number'}" inputmode="numeric" id="editPrice" value="${t.discount? '-'+Math.abs(t.price) : t.price}" style="flex:1;">
                   ${t.discount?'':`<button type="button" class="sign-btn" id="editPriceSignBtn">±</button>`}
                 </div>
               </div>
-              ${t.flat?'':`<div class="field"><label>수량 (kg)</label><input type="number" inputmode="decimal" step="0.1" id="editQty" value="${t.qty}"></div>`}
             </div>
             <div class="pay-toggle">
               <button id="editPayCredit" class="credit ${!t.paid?'active':''}">외상(미수금)</button>
@@ -838,6 +838,11 @@ function periodToRange(period){
   const start = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
   return [start, end];
 }
+function msgKey(clientId){
+  const [s,e] = periodToRange(statementPeriod);
+  return clientId+'__'+s+'__'+e;
+}
+
 function txInRange(start, end, clientId){
   const out = [];
   Object.keys(state.tx).forEach(dateKey=>{
@@ -1062,12 +1067,12 @@ function renderStatement(){
             <div><b>기간</b> ${dateLabel(rangeStart)} ~ ${dateLabel(rangeEnd)}</div>
           </div>
           <table class="st-table">
-            <thead><tr><th>날짜</th><th>품목</th><th class="num">단가</th><th class="num">수량</th><th class="num">금액</th><th class="center">구분</th></tr></thead>
+            <thead><tr><th>날짜</th><th>품목</th><th class="num">수량</th><th class="num">단가</th><th class="num">금액</th><th class="center">구분</th></tr></thead>
             <tbody>
               ${txs.length? txs.map(t=>{
                 const it=getItem(t.itemId);
                 const tag = t.paid ? (t.payMethod==='card'?'카드':'현금') : '외상';
-                return `<tr><td>${dateLabel(t.date)}</td><td>${it?it.name:'-'}</td><td class="num">${won(t.price)}</td><td class="num">${t.flat?'-':t.qty+'kg'}</td><td class="num">${won(t.total)}</td><td class="center">${tag}</td></tr>`;
+                return `<tr><td>${dateLabel(t.date)}</td><td>${it?it.name:'-'}</td><td class="num">${t.flat?'-':t.qty+'kg'}</td><td class="num">${won(t.price)}</td><td class="num">${won(t.total)}</td><td class="center">${tag}</td></tr>`;
               }).join('') : `<tr><td colspan="6" class="st-empty">이 기간에 등록된 거래가 없습니다</td></tr>`}
             </tbody>
           </table>
@@ -1082,12 +1087,12 @@ function renderStatement(){
             <div class="st-row grand"><span>거래·잔액 총 합계</span><span>${won(grandTotal)}</span></div>
           </div>
           <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
-          ${selectedStatementClientId && state.clientMessages[selectedStatementClientId] ? `<div class="st-message">${state.clientMessages[selectedStatementClientId].replace(/\n/g,'<br>')}</div>` : ''}
+          ${selectedStatementClientId && state.clientMessages[msgKey(selectedStatementClientId)] ? `<div class="st-message">${state.clientMessages[msgKey(selectedStatementClientId)].replace(/\n/g,'<br>')}</div>` : ''}
           <div class="st-foot">좋은 수산물의 기준, 샛별수산</div>
         </div>
 
         <div class="no-print">
-          <textarea class="msg-input" id="clientMsgInput" placeholder="이 거래처에 전달할 메시지를 입력하세요 (예: 항상 좋은 거래 감사합니다.)">${state.clientMessages[selectedStatementClientId]||''}</textarea>
+          <textarea class="msg-input" id="clientMsgInput" placeholder="이 거래처에 전달할 메시지를 입력하세요 (예: 항상 좋은 거래 감사합니다.)">${state.clientMessages[msgKey(selectedStatementClientId)]||''}</textarea>
           <button class="btn-ghost" id="saveMsgBtn" style="text-decoration:underline;">메시지 저장</button>
           <button class="btn-main" id="printBtn">무선 프린터로 인쇄</button>
           <button class="btn-main share-btn" id="shareBtn">사진으로 문자·이메일 보내기</button>
@@ -1528,8 +1533,9 @@ function attachHandlers(){
     document.getElementById('saveMsgBtn')?.addEventListener('click', async ()=>{
       const ta = document.getElementById('clientMsgInput');
       const text = ta.value.trim();
-      if(text){ state.clientMessages[selectedStatementClientId] = text; }
-      else { delete state.clientMessages[selectedStatementClientId]; }
+      const k = msgKey(selectedStatementClientId);
+      if(text){ state.clientMessages[k] = text; }
+      else { delete state.clientMessages[k]; }
       await saveState(); render();
     });
 
@@ -1598,7 +1604,6 @@ function attachHandlers(){
     render();
   });
 })();
-
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('service-worker.js').catch(()=>{});
