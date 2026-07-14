@@ -392,7 +392,7 @@ async function loadState(){
       const raw = localStorage.getItem(STORAGE_KEY);
       if(raw){ state = JSON.parse(raw); }
     }
-  }catch(e){ /* 첫 사용: 데이터 없음 */ }
+  }catch(e){}
   if(!state.clients) state.clients = [];
   if(!state.items) state.items = [];
   if(!state.tx) state.tx = {};
@@ -404,8 +404,7 @@ async function saveState(){
   try{
     if(window.storage){ await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); }
     else { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  }
-  catch(e){ console.error('저장 실패', e); }
+  } catch(e){ console.error('저장 실패', e); }
 }
 
 function getClient(id){ return state.clients.find(c=>c.id===id); }
@@ -1099,7 +1098,6 @@ function renderStatement(){
         const paymentsCash = paymentsForClient.filter(p=>p.method==='cash').reduce((s,p)=>s+p.amount,0);
         const paymentsCard = paymentsForClient.filter(p=>p.method==='card').reduce((s,p)=>s+p.amount,0);
         const priorBalance = Math.max(0, (c.balance||0) - periodCredit + paymentsTotal);
-        const grandTotal = periodTotal + priorBalance;
 
         html += `
         <div class="statement" id="statementPrintArea">
@@ -1126,7 +1124,6 @@ function renderStatement(){
             ${paymentsTotal>0?`<div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금액 (현금 ${won(paymentsCash)} · 카드 ${won(paymentsCard)})</span><span>-${won(paymentsTotal)}</span></div>`:''}
             <div class="st-row"><span>이전 잔액</span><span>${won(priorBalance)}</span></div>
             <div class="st-row total"><span>현재 총 잔액</span><span>${won(c.balance||0)}</span></div>
-            <div class="st-row grand"><span>거래·잔액 총 합계</span><span>${won(grandTotal)}</span></div>
           </div>
           <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
           ${selectedStatementClientId && state.clientMessages[msgKey(selectedStatementClientId)] ? `<div class="st-message">${state.clientMessages[msgKey(selectedStatementClientId)].replace(/\n/g,'<br>')}</div>` : ''}
@@ -1655,11 +1652,7 @@ function attachHandlers(){
     render();
   });
 })();
-if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
-  });
-}
+if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }); }
 </script>
 </body>
 </html>
