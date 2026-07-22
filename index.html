@@ -242,6 +242,47 @@
 
   .fab{position:fixed;bottom:22px;right:calc(50% - 240px + 18px);max-width:480px;background:var(--navy);color:#fff;border:none;width:54px;height:54px;border-radius:50%;font-size:26px;box-shadow:0 6px 16px rgba(28,58,75,0.4);cursor:pointer;z-index:10;}
   @media (max-width:520px){.fab{right:18px;}}
+
+  /* ── 재고관리 탭 ── */
+  .inv-subtabs{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;padding-bottom:2px;}
+  .inv-sub-btn{flex:0 0 auto;padding:8px 14px;border:1.5px solid var(--rule);border-radius:20px;background:#fff;font-weight:700;font-size:12.5px;color:#7a7260;cursor:pointer;white-space:nowrap;}
+  .inv-sub-btn.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;}
+  .metric-card{background:#fff;border:1.5px solid var(--rule);border-radius:12px;padding:14px 12px;}
+  .metric-card.danger{border-color:var(--stamp);background:#FEF6F5;}
+  .metric-card .mc-label{font-size:11px;color:#9a9180;font-weight:700;margin-bottom:4px;}
+  .metric-card .mc-name{font-weight:700;font-size:13px;color:var(--navy);margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .metric-card .mc-val{font-weight:900;font-size:18px;color:var(--ink);font-variant-numeric:tabular-nums;}
+  .metric-card .mc-sub{font-size:11px;color:#9a9180;margin-top:3px;}
+  .metric-card .mc-val.red{color:var(--stamp);}
+  .metric-card .mc-val.green{color:var(--green);}
+  .inv-form{background:#fff;border:2px solid var(--navy);border-radius:14px;padding:16px;margin-bottom:16px;}
+  .inv-form .if-title{font-family:'Noto Serif KR',serif;font-weight:700;font-size:16px;color:var(--navy);margin-bottom:12px;}
+  .inv-form select,.inv-form input[type=text],.inv-form input[type=number],.inv-form input[type=date]{width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;font-family:'Noto Sans KR',sans-serif;color:var(--ink);}
+  .inv-form select:focus,.inv-form input:focus{outline:none;border-color:var(--navy);}
+  .inv-form .if-label{font-size:12px;font-weight:700;color:#7a7260;margin-bottom:4px;}
+  .choice-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px;}
+  .choice-btn{padding:9px 4px;border:1.5px solid var(--rule);border-radius:8px;background:#fff;font-weight:700;font-size:12px;cursor:pointer;text-align:center;color:var(--ink);}
+  .choice-btn.sel-cause{background:var(--stamp);color:#fff;border-color:var(--stamp);}
+  .choice-btn.sel-stage{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .choice-btn.sel-status{background:var(--green);color:#fff;border-color:var(--green);}
+  .choice-btn.sel-cat{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .choice-btn.sel-unit{background:var(--navy);color:#fff;border-color:var(--navy);}
+  .inv-row{background:#fff;border:1.5px solid var(--rule);border-radius:10px;padding:12px 14px;margin-bottom:8px;}
+  .inv-row .ir-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+  .inv-row .ir-name{font-weight:700;font-size:14.5px;}
+  .inv-row .ir-val{font-weight:900;font-size:15px;font-variant-numeric:tabular-nums;}
+  .inv-row .ir-meta{font-size:11.5px;color:#9a9180;line-height:1.5;}
+  .inv-row .ir-tag{font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;background:var(--paper-deep);color:var(--navy);margin-left:6px;}
+  .inv-row .ir-tag.red{background:#FBEAE7;color:var(--stamp);}
+  .inv-row .ir-tag.green{background:#EAF3EE;color:var(--green);}
+  .conv-candidate{border:2px dashed var(--stamp);border-radius:12px;padding:12px 14px;margin-bottom:8px;background:#FEF6F5;}
+  .conv-candidate .cc-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+  .conv-candidate .cc-name{font-weight:700;font-size:14.5px;color:var(--stamp);}
+  .conv-candidate .cc-qty{font-weight:900;font-size:14px;color:var(--stamp);}
+  .dash-summary{background:var(--navy);border-radius:12px;padding:14px;margin-bottom:14px;color:var(--paper);}
+  .dash-summary .ds-row{display:flex;justify-content:space-between;font-size:13.5px;padding:3px 0;}
+  .dash-summary .ds-row.big{font-weight:900;font-size:16px;border-top:1.5px dashed rgba(246,241,226,0.3);margin-top:6px;padding-top:8px;}
 </style>
 </head>
 <body>
@@ -265,6 +306,7 @@
     <button data-tab="clients">거래처</button>
     <button data-tab="balance">미수금</button>
     <button data-tab="statement">명세서</button>
+    <button data-tab="inventory">재고관리</button>
   </nav>
 
   <main id="main"></main>
@@ -287,7 +329,7 @@ const STORAGE_KEY = 'saetbyeol-ledger-data';
 // state.clients: [{id,name,favorite,balance}]
 // state.items: [{id,name,price,priceDate}]
 // state.tx: { 'YYYY-MM-DD': [{id,clientId,itemId,price,qty,total,paid}] }
-let state = { clients: [], items: [], tx: {}, payments: [], clientMessages: {} };
+let state = { clients: [], items: [], tx: {}, payments: [], clientMessages: {}, species: [], stockIn: [], mortality: [], conversions: [] };
 let activeTab = 'today';
 let selectedClientId = null;
 let showAllClients = false;
@@ -300,6 +342,8 @@ let statementCustomStart = null;
 let statementCustomEnd = null;
 let statementView = 'client'; // 'client' | 'summary' | 'chart'
 let chartClientId = null; // null = 전체 거래처 기준
+let invSubTab = 'dashboard'; // 'dashboard'|'stockin'|'mortality'|'conversion'|'species'
+let invSpeciesSearch = '';
 let editingTxId = null;
 let balanceMethod = {}; // clientId -> 'cash' | 'card' (미수금 탭에서 입금/정산 시 선택)
 let clientsTabSearch = '';
@@ -426,6 +470,7 @@ function render(){
   else if(activeTab==='prices') main.innerHTML = renderPrices();
   else if(activeTab==='clients') main.innerHTML = renderClients();
   else if(activeTab==='balance') main.innerHTML = renderBalance();
+  else if(activeTab==='inventory') main.innerHTML = renderInventory();
   else main.innerHTML = renderStatement();
 
   attachHandlers();
@@ -1000,6 +1045,231 @@ function shopHeaderHtml(){
         </div>`;
 }
 
+// ── 재고관리: 핵심 계산 함수 ──────────────────────────────────
+function getSp(id){ return state.species.find(s=>s.id===id); }
+function currentStock(spId){
+  const inQty = (state.stockIn||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  const deadQty = (state.mortality||[]).filter(r=>r.speciesId===spId && r.status!=='전환대기').reduce((s,r)=>s+r.quantity,0);
+  const convOut = (state.conversions||[]).filter(r=>r.fromSpeciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  const convIn  = (state.conversions||[]).filter(r=>r.toSpeciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  return Math.max(0, inQty - deadQty - convOut + convIn);
+}
+function mortalityRate(spId){
+  const inQty = (state.stockIn||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  const deadQty = (state.mortality||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  if(!inQty) return 0;
+  return (deadQty/inQty*100);
+}
+function avgNormalPrice(spId){
+  const sp = getSp(spId);
+  if(!sp) return 0;
+  const relatedItem = state.items.find(it=>it.name.includes(sp.name)||sp.name.includes(it.name));
+  return relatedItem && relatedItem.price>0 ? relatedItem.price : 0;
+}
+function conversionMarginLoss(spId){
+  const convs = (state.conversions||[]).filter(r=>r.fromSpeciesId===spId);
+  const normalPrice = avgNormalPrice(spId);
+  let loss = 0;
+  convs.forEach(cv=>{
+    const carried = cv.carriedCost||0;
+    const soldPrice = cv.soldPrice||0;
+    if(soldPrice>0) loss += (carried - soldPrice)*cv.quantity;
+    else if(normalPrice>0) loss += (normalPrice - carried)*cv.quantity;
+  });
+  return loss;
+}
+
+function renderInventory(){
+  const subTabs = [{k:'dashboard',l:'대시보드'},{k:'stockin',l:'입고'},{k:'mortality',l:'폐사'},{k:'conversion',l:'전환'},{k:'species',l:'품종관리'}];
+  let html = `<div class="inv-subtabs">`;
+  subTabs.forEach(t=>{ html+=`<button class="inv-sub-btn ${invSubTab===t.k?'active':''}" data-invtab="${t.k}">${t.l}</button>`; });
+  html += `</div>`;
+
+  if(invSubTab==='dashboard') html += renderInvDashboard();
+  else if(invSubTab==='stockin') html += renderInvStockIn();
+  else if(invSubTab==='mortality') html += renderInvMortality();
+  else if(invSubTab==='conversion') html += renderInvConversion();
+  else html += renderInvSpecies();
+  return html;
+}
+
+function renderInvDashboard(){
+  const species = state.species||[];
+  if(!species.length) return `<div class="empty">품종관리 탭에서 먼저 품종을 등록해주세요.<br>(예: 민어(활어), 양식광어(활어), 킹크랩(선어) 등)</div>`;
+  const totalIn = (state.stockIn||[]).reduce((s,r)=>s+r.quantity,0);
+  const totalDead = (state.mortality||[]).reduce((s,r)=>s+r.quantity,0);
+  const totalConv = (state.conversions||[]).reduce((s,r)=>s+r.quantity,0);
+  const totalStock = species.reduce((s,sp)=>s+currentStock(sp.id),0);
+  let html = `
+  <div class="dash-summary">
+    <div class="ds-row"><span>총 입고량</span><span>${totalIn.toLocaleString()}단위</span></div>
+    <div class="ds-row"><span>폐사 합계</span><span>${totalDead.toLocaleString()}단위</span></div>
+    <div class="ds-row"><span>전환 합계</span><span>${totalConv.toLocaleString()}단위</span></div>
+    <div class="ds-row big"><span>현재 총 재고</span><span>${totalStock.toLocaleString()}단위</span></div>
+  </div>
+  <div class="section-title">품종별 재고 현황</div>
+  <div class="metric-grid">`;
+  species.forEach(sp=>{
+    const stock = currentStock(sp.id);
+    const rate = mortalityRate(sp.id);
+    const loss = conversionMarginLoss(sp.id);
+    const isDanger = rate > 10;
+    html += `
+    <div class="metric-card ${isDanger?'danger':''}">
+      <div class="mc-label">${sp.category} · ${sp.unit}</div>
+      <div class="mc-name">${sp.name}</div>
+      <div class="mc-val">${stock.toLocaleString()}<small style="font-size:13px;font-weight:500;">${sp.unit}</small></div>
+      <div class="mc-sub">폐사율 ${rate.toFixed(1)}%${loss>0?` · 손실 ${won(loss)}`:''}</div>
+    </div>`;
+  });
+  html += `</div>`;
+
+  const pending = (state.mortality||[]).filter(m=>m.status==='전환대기');
+  if(pending.length){
+    html += `<div class="section-title">전환 대기 중 <span class="count">${pending.length}</span></div>`;
+    pending.forEach(m=>{
+      const sp = getSp(m.speciesId);
+      html += `<div class="conv-candidate"><div class="cc-head"><span class="cc-name">${sp?sp.name:'?'} 폐사</span><span class="cc-qty">${m.quantity}${sp?sp.unit:''}</span></div><div class="ir-meta">${dateLabel(m.occurredAt)} · ${m.cause} · ${m.stage}</div></div>`;
+    });
+  }
+  return html;
+}
+
+function renderInvStockIn(){
+  const species = state.species||[];
+  let html = `
+  <div class="inv-form" id="invStockInForm">
+    <div class="if-title">입고 등록</div>
+    <div class="if-label">품종</div>
+    <select id="si-species"><option value="">품종 선택</option>${species.map(s=>`<option value="${s.id}">${s.name} (${s.category})</option>`).join('')}</select>
+    <div class="if-label">매입처</div>
+    <input type="text" id="si-supplier" placeholder="예: ○○수협, 여수 직송">
+    <div class="if-label">수량 (${species.length?'품종 선택 후 단위 표시':''})</div>
+    <input type="number" inputmode="decimal" step="0.1" id="si-qty" placeholder="0.0">
+    <div class="if-label">매입 단가 (원/단위)</div>
+    <input type="number" inputmode="numeric" id="si-cost" placeholder="0">
+    <div class="if-label">입고일</div>
+    <input type="date" id="si-date" value="${workingDate}">
+    <button class="btn-main" id="si-save">입고 등록</button>
+  </div>
+  <div class="section-title">입고 내역</div>`;
+  const list = (state.stockIn||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  if(!list.length) html += `<div class="empty">아직 입고 기록이 없습니다.</div>`;
+  list.forEach(r=>{
+    const sp = getSp(r.speciesId);
+    html += `<div class="inv-row">
+      <div class="ir-top"><span class="ir-name">${sp?sp.name:'?'}</span><span class="ir-val">${r.quantity}${sp?sp.unit:''}</span></div>
+      <div class="ir-meta">${dateLabel(r.date)} · ${r.supplier||'매입처 미기재'} · 단가 ${won(r.unitCost)}/${sp?sp.unit:'단위'}</div>
+    </div>`;
+  });
+  return html;
+}
+
+function renderInvMortality(){
+  const CAUSES=['수온','질병','산소부족','이동손상','기타'];
+  const STAGES=['입고직후','보관중','판매직전'];
+  const species = (state.species||[]).filter(s=>s.category==='활어');
+  let html = `
+  <div class="inv-form" id="invMortalityForm">
+    <div class="if-title">폐사 등록</div>
+    <div class="if-label">품종 (활어만)</div>
+    <select id="mo-species"><option value="">품종 선택</option>${species.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select>
+    <div class="if-label">폐사 수량</div>
+    <input type="number" inputmode="decimal" step="0.1" id="mo-qty" placeholder="0.0">
+    <div class="if-label">원인</div>
+    <div class="choice-grid" id="mo-cause-grid">${CAUSES.map(c=>`<button class="choice-btn" data-cause="${c}">${c}</button>`).join('')}</div>
+    <div class="if-label">발생 단계</div>
+    <div class="choice-grid" id="mo-stage-grid">${STAGES.map(s=>`<button class="choice-btn" data-stage="${s}">${s}</button>`).join('')}</div>
+    <div class="if-label">발생일</div>
+    <input type="date" id="mo-date" value="${workingDate}">
+    <div class="if-label">처리 방향</div>
+    <div class="choice-grid" id="mo-status-grid">
+      ${['전환대기','폐기'].map(s=>`<button class="choice-btn" data-mostat="${s}">${s}</button>`).join('')}
+    </div>
+    <button class="btn-main" id="mo-save">폐사 등록</button>
+  </div>
+  <div class="section-title">폐사 이력</div>`;
+  const list = (state.mortality||[]).slice().sort((a,b)=>b.occurredAt.localeCompare(a.occurredAt));
+  if(!list.length) html += `<div class="empty">폐사 기록이 없습니다.</div>`;
+  list.forEach(m=>{
+    const sp = getSp(m.speciesId);
+    const tagClass = m.status==='전환대기'?'red':m.status==='전환완료'?'green':'';
+    html += `<div class="inv-row">
+      <div class="ir-top"><span class="ir-name">${sp?sp.name:'?'} 폐사 <span class="ir-tag ${tagClass}">${m.status}</span></span><span class="ir-val red">${m.quantity}${sp?sp.unit:''}</span></div>
+      <div class="ir-meta">${dateLabel(m.occurredAt)} · ${m.cause} · ${m.stage}</div>
+    </div>`;
+  });
+  return html;
+}
+
+function renderInvConversion(){
+  const pending = (state.mortality||[]).filter(m=>m.status==='전환대기');
+  const liveSpecies = (state.species||[]).filter(s=>s.category==='활어');
+  const freshSpecies = (state.species||[]).filter(s=>s.category==='선어');
+  let html = `<div class="section-title">전환 대기 목록 <span class="count">${pending.length}</span></div>`;
+  if(!pending.length){
+    html += `<div class="empty">전환 대기 중인 폐사 이벤트가 없습니다.<br>폐사 탭에서 처리 방향을 '전환대기'로 등록해주세요.</div>`;
+  } else {
+    pending.forEach(m=>{
+      const sp = getSp(m.speciesId);
+      html += `
+      <div class="conv-candidate">
+        <div class="cc-head"><span class="cc-name">${sp?sp.name:'?'}</span><span class="cc-qty">${m.quantity}${sp?sp.unit:''}</span></div>
+        <div class="ir-meta">${dateLabel(m.occurredAt)} · ${m.cause} · ${m.stage}</div>
+        <div class="if-label" style="margin-top:10px;">전환할 선어 품종</div>
+        <select class="conv-to-species" data-moid="${m.id}" style="width:100%;font-size:14px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:8px;">
+          <option value="">선어 품종 선택</option>
+          ${freshSpecies.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+        </select>
+        <div class="if-label">전환 수량 (최대 ${m.quantity}${sp?sp.unit:''})</div>
+        <input type="number" inputmode="decimal" step="0.1" class="conv-qty" data-moid="${m.id}" placeholder="${m.quantity}" value="${m.quantity}" style="width:100%;font-size:15px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:8px;">
+        <div class="if-label">예상 판매 단가 (원/${sp?sp.unit:'단위'}, 마진손실 계산에 사용)</div>
+        <input type="number" inputmode="numeric" class="conv-sold" data-moid="${m.id}" placeholder="0" style="width:100%;font-size:15px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:10px;">
+        <button class="btn-main" data-doconv="${m.id}">선어로 전환 완료</button>
+      </div>`;
+    });
+  }
+
+  html += `<div class="section-title">전환 이력</div>`;
+  const convList = (state.conversions||[]).slice().sort((a,b)=>b.convertedAt.localeCompare(a.convertedAt));
+  if(!convList.length) html += `<div class="empty">전환 기록이 없습니다.</div>`;
+  convList.forEach(cv=>{
+    const fromSp = getSp(cv.fromSpeciesId); const toSp = getSp(cv.toSpeciesId);
+    const loss = cv.carriedCost>0&&cv.soldPrice>0 ? (cv.carriedCost-cv.soldPrice)*cv.quantity : 0;
+    html += `<div class="inv-row">
+      <div class="ir-top"><span class="ir-name">${fromSp?fromSp.name:'?'} → ${toSp?toSp.name:'?'}</span><span class="ir-val">${cv.quantity}${fromSp?fromSp.unit:''}</span></div>
+      <div class="ir-meta">${dateLabel(cv.convertedAt)} · 원가 ${won(cv.carriedCost)}/${fromSp?fromSp.unit:'단위'} · 전환판매단가 ${cv.soldPrice?won(cv.soldPrice):'미기재'}${loss>0?` · 마진손실 ${won(loss)}`:''}</div>
+    </div>`;
+  });
+  return html;
+}
+
+function renderInvSpecies(){
+  const CATS=['활어','선어']; const UNITS=['kg','마리'];
+  let html = `
+  <div class="inv-form" id="invSpeciesForm">
+    <div class="if-title">품종 등록</div>
+    <div class="if-label">품종 이름</div>
+    <input type="text" id="sp-name" placeholder="예: 민어, 킹크랩, 양식광어">
+    <div class="if-label">분류</div>
+    <div class="choice-grid" id="sp-cat-grid">${CATS.map(c=>`<button class="choice-btn" data-spcat="${c}">${c}</button>`).join('')}</div>
+    <div class="if-label">단위</div>
+    <div class="choice-grid" id="sp-unit-grid">${UNITS.map(u=>`<button class="choice-btn" data-spunit="${u}">${u}</button>`).join('')}</div>
+    <button class="btn-main" id="sp-save">품종 저장</button>
+  </div>
+  <div class="section-title">등록된 품종 <span class="count">${(state.species||[]).length}</span></div>`;
+  if(!(state.species||[]).length) html += `<div class="empty">등록된 품종이 없습니다.</div>`;
+  (state.species||[]).forEach(sp=>{
+    const stock = currentStock(sp.id);
+    const rate = mortalityRate(sp.id);
+    html += `<div class="inv-row">
+      <div class="ir-top"><span class="ir-name">${sp.name} <span class="ir-tag">${sp.category}</span></span><span class="ir-val">${stock.toLocaleString()}${sp.unit}</span></div>
+      <div class="ir-meta">폐사율 ${rate.toFixed(1)}%</div>
+    </div>`;
+  });
+  return html;
+}
+
 function renderStatement(){
   let html = '';
   if(state.clients.length===0){
@@ -1202,7 +1472,7 @@ function attachHandlers(){
   fab.style.display = (activeTab==='clients' || activeTab==='prices') ? 'block' : 'none';
 
   document.querySelectorAll('nav.tabs button').forEach(b=>{
-    b.onclick = ()=>{ activeTab=b.dataset.tab; selectedClientId=null; cart=[]; cartPayMode='credit'; cartPayMethod='cash'; selectedStatementClientId=null; chartClientId=null; editingTxId=null; todayClientSearch=''; todayItemSearch=''; clientsTabSearch=''; balanceTabSearch=''; render(); };
+    b.onclick = ()=>{ activeTab=b.dataset.tab; selectedClientId=null; cart=[]; cartPayMode='credit'; cartPayMethod='cash'; selectedStatementClientId=null; chartClientId=null; editingTxId=null; todayClientSearch=''; todayItemSearch=''; clientsTabSearch=''; balanceTabSearch=''; invSubTab='dashboard'; render(); };
   });
   fab.onclick = ()=>{
     if(activeTab==='prices'){ state._showAddItem = true; render(); setTimeout(()=>document.getElementById('newItemName')?.focus(),50); }
@@ -1508,6 +1778,10 @@ function attachHandlers(){
           if(!state.tx) state.tx = {};
           if(!state.payments) state.payments = [];
           if(!state.clientMessages) state.clientMessages = {};
+          if(!state.species) state.species = [];
+          if(!state.stockIn) state.stockIn = [];
+          if(!state.mortality) state.mortality = [];
+          if(!state.conversions) state.conversions = [];
           ensureItemDefaults();
           await saveState(); render();
         }
@@ -1634,6 +1908,98 @@ function attachHandlers(){
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a'); a.href = url; a.download = `거래명세서_${statementLabel()}.png`; a.click();
       URL.revokeObjectURL(url);
+    });
+  }
+
+  if(activeTab==='inventory'){
+    // 서브탭 전환
+    document.querySelectorAll('[data-invtab]').forEach(b=>{
+      b.onclick = ()=>{ invSubTab = b.dataset.invtab; render(); };
+    });
+
+    // ── 품종관리 ──────────────────────────────────────────────
+    let selCat='활어', selUnit='kg';
+    document.querySelectorAll('[data-spcat]').forEach(b=>{
+      b.classList.toggle('sel-cat', b.dataset.spcat===selCat);
+      b.onclick = ()=>{ selCat=b.dataset.spcat; document.querySelectorAll('[data-spcat]').forEach(x=>x.classList.toggle('sel-cat',x.dataset.spcat===selCat)); };
+    });
+    document.querySelectorAll('[data-spunit]').forEach(b=>{
+      b.classList.toggle('sel-unit', b.dataset.spunit===selUnit);
+      b.onclick = ()=>{ selUnit=b.dataset.spunit; document.querySelectorAll('[data-spunit]').forEach(x=>x.classList.toggle('sel-unit',x.dataset.spunit===selUnit)); };
+    });
+    document.getElementById('sp-save')?.addEventListener('click', async ()=>{
+      const name = document.getElementById('sp-name').value.trim();
+      if(!name){ alert('품종 이름을 입력해주세요.'); return; }
+      if((state.species||[]).some(s=>s.name===name)){ alert('이미 등록된 품종입니다.'); return; }
+      if(!state.species) state.species=[];
+      state.species.push({ id:uid(), name, category:selCat, unit:selUnit });
+      await saveState(); render();
+    });
+
+    // ── 입고 ──────────────────────────────────────────────────
+    document.getElementById('si-save')?.addEventListener('click', async ()=>{
+      const spId = document.getElementById('si-species')?.value;
+      const qty = Number(document.getElementById('si-qty')?.value||0);
+      const cost = Number(document.getElementById('si-cost')?.value||0);
+      const supplier = document.getElementById('si-supplier')?.value.trim();
+      const date = document.getElementById('si-date')?.value||workingDate;
+      if(!spId){ alert('품종을 선택해주세요.'); return; }
+      if(qty<=0){ alert('수량을 입력해주세요.'); return; }
+      if(!state.stockIn) state.stockIn=[];
+      state.stockIn.push({ id:uid(), speciesId:spId, supplier, quantity:qty, unitCost:cost, date });
+      await saveState(); render();
+    });
+
+    // ── 폐사 ──────────────────────────────────────────────────
+    let selCause='', selStage='', selMoStatus='전환대기';
+    document.querySelectorAll('[data-cause]').forEach(b=>{
+      if(b.dataset.cause===selCause) b.classList.add('sel-cause');
+      b.onclick = ()=>{ selCause=b.dataset.cause; document.querySelectorAll('[data-cause]').forEach(x=>x.classList.toggle('sel-cause',x.dataset.cause===selCause)); };
+    });
+    document.querySelectorAll('[data-stage]').forEach(b=>{
+      if(b.dataset.stage===selStage) b.classList.add('sel-stage');
+      b.onclick = ()=>{ selStage=b.dataset.stage; document.querySelectorAll('[data-stage]').forEach(x=>x.classList.toggle('sel-stage',x.dataset.stage===selStage)); };
+    });
+    document.querySelectorAll('[data-mostat]').forEach(b=>{
+      if(b.dataset.mostat===selMoStatus) b.classList.add('sel-status');
+      b.onclick = ()=>{ selMoStatus=b.dataset.mostat; document.querySelectorAll('[data-mostat]').forEach(x=>x.classList.toggle('sel-status',x.dataset.mostat===selMoStatus)); };
+    });
+    document.getElementById('mo-save')?.addEventListener('click', async ()=>{
+      const spId = document.getElementById('mo-species')?.value;
+      const qty = Number(document.getElementById('mo-qty')?.value||0);
+      const date = document.getElementById('mo-date')?.value||workingDate;
+      if(!spId){ alert('품종을 선택해주세요.'); return; }
+      if(qty<=0){ alert('폐사 수량을 입력해주세요.'); return; }
+      if(!selCause){ alert('원인을 선택해주세요.'); return; }
+      if(!selStage){ alert('발생 단계를 선택해주세요.'); return; }
+      if(!state.mortality) state.mortality=[];
+      state.mortality.push({ id:uid(), speciesId:spId, quantity:qty, cause:selCause, stage:selStage, occurredAt:date, status:selMoStatus });
+      await saveState(); render();
+    });
+
+    // ── 전환 ──────────────────────────────────────────────────
+    document.querySelectorAll('[data-doconv]').forEach(b=>{
+      b.onclick = async ()=>{
+        const moid = b.dataset.doconv;
+        const m = (state.mortality||[]).find(x=>x.id===moid);
+        if(!m) return;
+        const toSpId = document.querySelector(`.conv-to-species[data-moid="${moid}"]`)?.value;
+        const qty = Number(document.querySelector(`.conv-qty[data-moid="${moid}"]`)?.value||m.quantity);
+        const soldPrice = Number(document.querySelector(`.conv-sold[data-moid="${moid}"]`)?.value||0);
+        if(!toSpId){ alert('전환할 선어 품종을 선택해주세요.'); return; }
+        // 원가 계산: 해당 품종의 마지막 입고 단가 사용
+        const lastStockIn = (state.stockIn||[]).filter(r=>r.speciesId===m.speciesId).slice(-1)[0];
+        const carriedCost = lastStockIn ? lastStockIn.unitCost : 0;
+        if(!state.conversions) state.conversions=[];
+        state.conversions.push({
+          id:uid(), mortalityId:moid,
+          fromSpeciesId:m.speciesId, toSpeciesId:toSpId,
+          quantity:qty, carriedCost, soldPrice,
+          convertedAt:workingDate, batchTag:`CONV-${uid().slice(0,6).toUpperCase()}`
+        });
+        m.status = '전환완료';
+        await saveState(); render();
+      };
     });
   }
 }
