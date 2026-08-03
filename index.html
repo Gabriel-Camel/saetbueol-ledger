@@ -26,9 +26,20 @@
     --rule:#C9BCA0;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:'Noto Sans KR',sans-serif;-webkit-tap-highlight-color:transparent;}
-  body{min-height:100vh;padding-bottom:40px;}
-  .wrap{max-width:480px;margin:0 auto;min-height:100vh;background:var(--paper);box-shadow:0 0 40px rgba(0,0,0,0.06);position:relative;}
+  html,body{margin:0;padding:0;background:#111;color:var(--ink);font-family:'Noto Sans KR',sans-serif;-webkit-tap-highlight-color:transparent;height:100%;overflow:hidden;}
+  body{display:flex;align-items:center;justify-content:center;min-height:100vh;min-height:100dvh;}
+  .wrap{
+    /* 10:16 비율 고정 */
+    aspect-ratio:10/16;
+    width:min(100vw, calc(100dvh * 10/16));
+    height:min(100dvh, calc(100vw * 16/10));
+    background:var(--paper);
+    box-shadow:0 0 40px rgba(0,0,0,0.25);
+    position:relative;
+    overflow-y:auto;
+    overflow-x:hidden;
+    flex-shrink:0;
+  }
 
   header.top{background:var(--navy);color:var(--paper);padding:22px 20px 18px;position:relative;overflow:hidden;}
   header.top::after{content:"";position:absolute;right:-30px;top:-30px;width:140px;height:140px;border:3px solid rgba(246,241,226,0.12);border-radius:50%;}
@@ -58,7 +69,7 @@
   nav.tabs button.active{color:var(--navy);}
   nav.tabs button.active::after{content:"";position:absolute;bottom:-2px;left:18%;right:18%;height:3px;background:var(--stamp);border-radius:2px;}
 
-  main{padding:18px 16px 30px;}
+  main{padding:18px 16px 90px;}
   .section-title{font-family:'Noto Serif KR',serif;font-weight:700;font-size:15px;color:var(--navy);margin:18px 0 10px 2px;display:flex;align-items:center;gap:8px;}
   .section-title:first-child{margin-top:0;}
   .section-title .count{font-family:'Noto Sans KR',sans-serif;font-weight:700;font-size:11px;background:var(--navy);color:var(--paper);padding:2px 7px;border-radius:20px;}
@@ -240,8 +251,8 @@
   .pmt-undo{background:none;border:1.5px solid var(--rule);border-radius:7px;color:var(--stamp);font-size:11.5px;font-weight:700;padding:5px 9px;cursor:pointer;}
   .total-out .v{font-size:26px;font-weight:900;font-variant-numeric:tabular-nums;}
 
-  .fab{position:fixed;bottom:22px;right:calc(50% - 240px + 18px);max-width:480px;background:var(--navy);color:#fff;border:none;width:54px;height:54px;border-radius:50%;font-size:26px;box-shadow:0 6px 16px rgba(28,58,75,0.4);cursor:pointer;z-index:10;}
-  @media (max-width:520px){.fab{right:18px;}}
+  .fab{position:sticky;bottom:22px;float:right;margin-right:18px;background:var(--navy);color:#fff;border:none;width:54px;height:54px;border-radius:50%;font-size:26px;box-shadow:0 6px 16px rgba(28,58,75,0.4);cursor:pointer;z-index:10;}
+  @media (max-width:520px){.fab{margin-right:18px;}}
 
   /* ── 재고관리 탭 ── */
   .inv-subtabs{display:flex;gap:6px;margin-bottom:14px;overflow-x:auto;padding-bottom:2px;}
@@ -429,14 +440,9 @@ function ensureItemDefaults(){
 
 async function loadState(){
   try{
-    if(window.storage){
-      const res = await window.storage.get(STORAGE_KEY, false);
-      if(res && res.value){ state = JSON.parse(res.value); }
-    } else {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if(raw){ state = JSON.parse(raw); }
-    }
-  }catch(e){}
+    const res = await window.storage.get(STORAGE_KEY, false);
+    if(res && res.value){ state = JSON.parse(res.value); }
+  }catch(e){ /* 첫 사용: 데이터 없음 */ }
   if(!state.clients) state.clients = [];
   if(!state.items) state.items = [];
   if(!state.tx) state.tx = {};
@@ -1262,9 +1268,20 @@ function renderInvSpecies(){
   (state.species||[]).forEach(sp=>{
     const stock = currentStock(sp.id);
     const rate = mortalityRate(sp.id);
-    html += `<div class="inv-row">
-      <div class="ir-top"><span class="ir-name">${sp.name} <span class="ir-tag">${sp.category}</span></span><span class="ir-val">${stock.toLocaleString()}${sp.unit}</span></div>
-      <div class="ir-meta">폐사율 ${rate.toFixed(1)}%</div>
+    html += `
+    <div class="inv-row" style="border:1.5px solid var(--rule);">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <input type="text" class="cname-input" data-spename="${sp.id}" value="${sp.name}" placeholder="품종 이름" style="flex:1;">
+        <button class="iname-save-btn" data-spnamesave="${sp.id}" style="display:none;">저장</button>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        ${CATS.map(c=>`<button class="choice-btn ${sp.category===c?'sel-cat':''}" data-specat="${sp.id}" data-cval="${c}">${c}</button>`).join('')}
+        ${UNITS.map(u=>`<button class="choice-btn ${sp.unit===u?'sel-unit':''}" data-speunit="${sp.id}" data-uval="${u}">${u}</button>`).join('')}
+      </div>
+      <div class="ir-meta">현재고 <b>${stock.toLocaleString()}${sp.unit}</b> · 폐사율 ${rate.toFixed(1)}%</div>
+      <div style="text-align:right;margin-top:6px;">
+        <button class="icon-btn" data-delspecies="${sp.id}">삭제</button>
+      </div>
     </div>`;
   });
   return html;
@@ -1934,6 +1951,63 @@ function attachHandlers(){
       if(!state.species) state.species=[];
       state.species.push({ id:uid(), name, category:selCat, unit:selUnit });
       await saveState(); render();
+    });
+
+    // 품종 이름 수정
+    document.querySelectorAll('[data-spename]').forEach(inp=>{
+      const saveBtn = inp.parentElement?.querySelector(`[data-spnamesave="${inp.dataset.spename}"]`);
+      inp.addEventListener('input', ()=>{
+        const sp = getSp(inp.dataset.spename);
+        if(saveBtn) saveBtn.style.display = inp.value.trim()!==sp?.name ? 'block' : 'none';
+      });
+      inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); saveBtn?.click(); } });
+      const doSave = async ()=>{
+        const sp = getSp(inp.dataset.spename);
+        const newName = inp.value.trim();
+        if(!newName){ inp.value = sp.name; if(saveBtn) saveBtn.style.display='none'; return; }
+        sp.name = newName;
+        await saveState(); render();
+      };
+      if(saveBtn) saveBtn.addEventListener('click', doSave);
+      inp.addEventListener('change', doSave);
+    });
+
+    // 분류(활어/선어) 토글
+    document.querySelectorAll('[data-specat]').forEach(b=>{
+      b.onclick = async ()=>{
+        const sp = getSp(b.dataset.specat);
+        if(!sp) return;
+        sp.category = b.dataset.cval;
+        // 같은 품종의 버튼들만 업데이트
+        document.querySelectorAll(`[data-specat="${sp.id}"]`).forEach(x=>{
+          x.classList.toggle('sel-cat', x.dataset.cval===sp.category);
+          x.classList.remove('sel-unit');
+        });
+        await saveState(); render();
+      };
+    });
+
+    // 단위(kg/마리) 토글
+    document.querySelectorAll('[data-speunit]').forEach(b=>{
+      b.onclick = async ()=>{
+        const sp = getSp(b.dataset.speunit);
+        if(!sp) return;
+        sp.unit = b.dataset.uval;
+        document.querySelectorAll(`[data-speunit="${sp.id}"]`).forEach(x=>{
+          x.classList.toggle('sel-unit', x.dataset.uval===sp.unit);
+        });
+        await saveState(); render();
+      };
+    });
+
+    // 품종 삭제
+    document.querySelectorAll('[data-delspecies]').forEach(b=>{
+      b.onclick = async ()=>{
+        const ok = await showConfirm('이 품종을 삭제하시겠습니까? 관련 입고·폐사·전환 기록은 그대로 남습니다.');
+        if(!ok) return;
+        state.species = (state.species||[]).filter(s=>s.id!==b.dataset.delspecies);
+        await saveState(); render();
+      };
     });
 
     // ── 입고 ──────────────────────────────────────────────────
