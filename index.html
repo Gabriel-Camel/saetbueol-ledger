@@ -26,7 +26,10 @@
     --rule:#C9BCA0;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:'Noto Sans KR',sans-serif;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:'Noto Sans KR',sans-serif;-webkit-tap-highlight-color:transparent;
+    /* ── pull-to-refresh 차단 (Android Chrome) ── */
+    overscroll-behavior-y: contain;
+  }
   body{min-height:100dvh;}
   .wrap{
     width:100%;
@@ -34,6 +37,8 @@
     background:var(--paper);
     position:relative;
     overflow-x:hidden;
+    /* wrap 자체도 overscroll 차단 */
+    overscroll-behavior-y: contain;
   }
 
   header.top{background:var(--navy);color:var(--paper);padding:28px 28px 22px;position:relative;overflow:hidden;}
@@ -232,6 +237,7 @@
       flex-direction: column;
       overflow-y: auto;
       overflow-x: hidden;
+      overscroll-behavior-y: contain;
       border-bottom: none;
       border-right: 2px solid var(--rule);
       padding-left: env(safe-area-inset-left, 0px);
@@ -256,6 +262,7 @@
       grid-row: 2;
       grid-column: 2;
       overflow-y: auto;
+      overscroll-behavior-y: contain;
       height: 100%;
       padding: 18px 22px max(80px, env(safe-area-inset-bottom, 80px));
       padding-right: max(22px, env(safe-area-inset-right, 22px));
@@ -480,7 +487,8 @@ let statementCustomStart = null;
 let statementCustomEnd = null;
 let statementView = 'client'; // 'client' | 'summary' | 'chart'
 let chartClientId = null; // null = 전체 거래처 기준
-let invSubTab = 'dashboard'; // 'dashboard'|'stockin'|'mortality'|'conversion'|'species'
+let invSubTab = 'dashboard'; // 'dashboard'|'stockin'|'mortality'|'conversion'|'history'|'species'
+let invHistorySpId = ''; // 변동이력 필터용 품종 ID
 let invSpeciesSearch = '';
 let editingTxId = null;
 let balanceMethod = {}; // clientId -> 'cash' | 'card' (미수금 탭에서 입금/정산 시 선택)
@@ -567,14 +575,24 @@ function ensureItemDefaults(){
 
 async function loadState(){
   try{
-    const res = await window.storage.get(STORAGE_KEY, false);
-    if(res && res.value){ state = JSON.parse(res.value); }
-  }catch(e){ /* 첫 사용: 데이터 없음 */ }
+    if(window.storage){
+      const res = await window.storage.get(STORAGE_KEY, false);
+      if(res && res.value){ state = JSON.parse(res.value); }
+    } else {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(raw){ state = JSON.parse(raw); }
+    }
+  }catch(e){}
   if(!state.clients) state.clients = [];
   if(!state.items) state.items = [];
   if(!state.tx) state.tx = {};
   if(!state.payments) state.payments = [];
   if(!state.clientMessages) state.clientMessages = {};
+  if(!state.species) state.species = [];
+  if(!state.stockIn) state.stockIn = [];
+  if(!state.mortality) state.mortality = [];
+  if(!state.conversions) state.conversions = [];
+  if(!state.inventorySales) state.inventorySales = [];
   ensureItemDefaults();
 }
 async function saveState(){
@@ -637,7 +655,14 @@ function renderTodayItemGridHtml(){
     const has = itemHasTodayPrice(it);
     const inCart = cart.some(l=>l.itemId===it.id);
     const priceLabel = has ? (it.flatRate ? won(it.price) : won(it.price)+'/kg') : '시세 미입력';
-    return `<button class="item-btn ${inCart?'selected':''} ${has?'':'noprice'}" data-item="${it.id}">${it.name}<span class="p">${priceLabel}</span></button>`;
+    // 재고 연동 배지
+    let stockBadge = '';
+    if(it.speciesId){
+      const stock = currentStock(it.speciesId);
+      const sp = getSp(it.speciesId);
+      stockBadge = `<span class="p" style="color:${stock===0?'var(--stamp)':'var(--green)'};">재고 ${stock}${sp?sp.unit:''}</span>`;
+    }
+    return `<button class="item-btn ${inCart?'selected':''} ${has?'':'noprice'}" data-item="${it.id}">${it.name}<span class="p">${priceLabel}</span>${stockBadge}</button>`;
   }).join('') + `</div>`;
 }
 function attachTodayItemGridHandlers(){
@@ -821,6 +846,11 @@ function renderPrices(){
       const priceInputHtml = it.isDiscount
         ? `<input type="text" inputmode="numeric" placeholder="할인 금액 (원)" value="${it.price? '-'+Math.abs(it.price) : '-'}" data-priceitem="${it.id}">`
         : `<input type="number" inputmode="numeric" placeholder="${it.flatRate?'오늘 가격 (원)':'오늘 단가 (원/kg)'}" value="${fresh?it.price:''}" data-priceitem="${it.id}">`;
+      // 연결된 품종 재고 표시
+      const linkedSp = it.speciesId ? getSp(it.speciesId) : null;
+      const stockBadge = linkedSp
+        ? `<span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:${currentStock(it.speciesId)===0?'#FBEAE7':'#EAF3EE'};color:${currentStock(it.speciesId)===0?'var(--stamp)':'var(--green)'};">재고 ${currentStock(it.speciesId).toLocaleString()}${linkedSp.unit}</span>`
+        : '';
       html += `
       <div class="item-row">
         <div class="top-line">
@@ -832,10 +862,17 @@ function renderPrices(){
           <button class="iname-save-btn" data-namesave="${it.id}" style="display:none;">저장</button>
           <button class="icon-btn" data-delitem="${it.id}">삭제</button>
         </div>
-        <div class="istatus ${fresh?'fresh':''}">${statusText}</div>
+        <div class="istatus ${fresh?'fresh':''}" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">${statusText} ${stockBadge}</div>
         <div class="item-price-row">
           ${priceInputHtml}
           ${(!fresh && it.price)?`<button class="same-btn" data-samebtn="${it.id}">어제와 동일</button>`:''}
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px;">
+          <span style="font-size:12px;font-weight:700;color:#7a7260;white-space:nowrap;">재고 품종 연결</span>
+          <select class="sp-link-select" data-splinkitem="${it.id}" style="flex:1;font-size:13px;padding:8px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);">
+            <option value="">연결 안 함</option>
+            ${(state.species||[]).map(s=>`<option value="${s.id}" ${it.speciesId===s.id?'selected':''}>${s.name} (${s.category})</option>`).join('')}
+          </select>
         </div>
       </div>`;
     });
@@ -1181,11 +1218,27 @@ function shopHeaderHtml(){
 // ── 재고관리: 핵심 계산 함수 ──────────────────────────────────
 function getSp(id){ return state.species.find(s=>s.id===id); }
 function currentStock(spId){
-  const inQty = (state.stockIn||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
-  const deadQty = (state.mortality||[]).filter(r=>r.speciesId===spId && r.status!=='전환대기').reduce((s,r)=>s+r.quantity,0);
-  const convOut = (state.conversions||[]).filter(r=>r.fromSpeciesId===spId).reduce((s,r)=>s+r.quantity,0);
-  const convIn  = (state.conversions||[]).filter(r=>r.toSpeciesId===spId).reduce((s,r)=>s+r.quantity,0);
-  return Math.max(0, inQty - deadQty - convOut + convIn);
+  const inQty   = (state.stockIn||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  const deadQty  = (state.mortality||[]).filter(r=>r.speciesId===spId && r.status!=='전환대기').reduce((s,r)=>s+r.quantity,0);
+  const convOut  = (state.conversions||[]).filter(r=>r.fromSpeciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  const convIn   = (state.conversions||[]).filter(r=>r.toSpeciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  const soldQty  = (state.inventorySales||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  return Math.max(0, inQty - deadQty - convOut + convIn - soldQty);
+}
+function totalSoldQty(spId){
+  return (state.inventorySales||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
+}
+// item → 연결된 species 반환
+function getItemSpecies(itemId){
+  const it = getItem(itemId);
+  if(!it || !it.speciesId) return null;
+  return getSp(it.speciesId);
+}
+// 해당 item 의 현재 재고 (item-species 연결 기반)
+function itemCurrentStock(itemId){
+  const it = getItem(itemId);
+  if(!it || !it.speciesId) return null;
+  return currentStock(it.speciesId);
 }
 function mortalityRate(spId){
   const inQty = (state.stockIn||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
@@ -1213,7 +1266,11 @@ function conversionMarginLoss(spId){
 }
 
 function renderInventory(){
-  const subTabs = [{k:'dashboard',l:'대시보드'},{k:'stockin',l:'입고'},{k:'mortality',l:'폐사'},{k:'conversion',l:'전환'},{k:'species',l:'품종관리'}];
+  const subTabs = [
+    {k:'dashboard',l:'대시보드'},{k:'stockin',l:'입고'},
+    {k:'mortality',l:'폐사'},{k:'conversion',l:'전환'},
+    {k:'history',l:'변동이력'},{k:'species',l:'품종관리'}
+  ];
   let html = `<div class="inv-subtabs">`;
   subTabs.forEach(t=>{ html+=`<button class="inv-sub-btn ${invSubTab===t.k?'active':''}" data-invtab="${t.k}">${t.l}</button>`; });
   html += `</div>`;
@@ -1222,6 +1279,7 @@ function renderInventory(){
   else if(invSubTab==='stockin') html += renderInvStockIn();
   else if(invSubTab==='mortality') html += renderInvMortality();
   else if(invSubTab==='conversion') html += renderInvConversion();
+  else if(invSubTab==='history') html += renderInvHistory();
   else html += renderInvSpecies();
   return html;
 }
@@ -1229,29 +1287,36 @@ function renderInventory(){
 function renderInvDashboard(){
   const species = state.species||[];
   if(!species.length) return `<div class="empty">품종관리 탭에서 먼저 품종을 등록해주세요.<br>(예: 민어(활어), 양식광어(활어), 킹크랩(선어) 등)</div>`;
-  const totalIn = (state.stockIn||[]).reduce((s,r)=>s+r.quantity,0);
-  const totalDead = (state.mortality||[]).reduce((s,r)=>s+r.quantity,0);
+  const totalIn   = (state.stockIn||[]).reduce((s,r)=>s+r.quantity,0);
+  const totalSold = (state.inventorySales||[]).reduce((s,r)=>s+r.quantity,0);
+  const totalDead = (state.mortality||[]).filter(r=>r.status!=='전환대기').reduce((s,r)=>s+r.quantity,0);
   const totalConv = (state.conversions||[]).reduce((s,r)=>s+r.quantity,0);
   const totalStock = species.reduce((s,sp)=>s+currentStock(sp.id),0);
   let html = `
   <div class="dash-summary">
     <div class="ds-row"><span>총 입고량</span><span>${totalIn.toLocaleString()}단위</span></div>
-    <div class="ds-row"><span>폐사 합계</span><span>${totalDead.toLocaleString()}단위</span></div>
-    <div class="ds-row"><span>전환 합계</span><span>${totalConv.toLocaleString()}단위</span></div>
+    <div class="ds-row"><span>판매 차감</span><span>−${totalSold.toLocaleString()}단위</span></div>
+    <div class="ds-row"><span>폐사 차감</span><span>−${totalDead.toLocaleString()}단위</span></div>
+    <div class="ds-row"><span>전환 순증감</span><span>${totalConv.toLocaleString()}단위</span></div>
     <div class="ds-row big"><span>현재 총 재고</span><span>${totalStock.toLocaleString()}단위</span></div>
   </div>
+  <div class="sub-note" style="text-align:center;margin-top:-6px;">입고 − 판매 − 폐사 ± 전환 = 현재 재고</div>
   <div class="section-title">품종별 재고 현황</div>
   <div class="metric-grid">`;
   species.forEach(sp=>{
-    const stock = currentStock(sp.id);
-    const rate = mortalityRate(sp.id);
-    const loss = conversionMarginLoss(sp.id);
-    const isDanger = rate > 10;
+    const inQty  = (state.stockIn||[]).filter(r=>r.speciesId===sp.id).reduce((s,r)=>s+r.quantity,0);
+    const sold   = totalSoldQty(sp.id);
+    const dead   = (state.mortality||[]).filter(r=>r.speciesId===sp.id&&r.status!=='전환대기').reduce((s,r)=>s+r.quantity,0);
+    const stock  = currentStock(sp.id);
+    const rate   = mortalityRate(sp.id);
+    const loss   = conversionMarginLoss(sp.id);
+    const isDanger = rate > 10 || stock === 0;
     html += `
-    <div class="metric-card ${isDanger?'danger':''}">
+    <div class="metric-card ${isDanger?'danger':''}" style="cursor:pointer;" data-invspecies="${sp.id}">
       <div class="mc-label">${sp.category} · ${sp.unit}</div>
       <div class="mc-name">${sp.name}</div>
-      <div class="mc-val">${stock.toLocaleString()}<small style="font-size:13px;font-weight:500;">${sp.unit}</small></div>
+      <div class="mc-val ${stock===0?'red':''}">${stock.toLocaleString()}<small style="font-size:13px;font-weight:500;">${sp.unit}</small></div>
+      <div class="mc-sub">입고 ${inQty} · 판매 ${sold} · 폐사 ${dead}</div>
       <div class="mc-sub">폐사율 ${rate.toFixed(1)}%${loss>0?` · 손실 ${won(loss)}`:''}</div>
     </div>`;
   });
@@ -1377,6 +1442,62 @@ function renderInvConversion(){
   return html;
 }
 
+function renderInvHistory(){
+  const allSp = state.species||[];
+  // 품종 필터 선택 (invHistoryFilter 전역 변수 사용)
+  const filterSpId = (typeof invHistorySpId !== 'undefined') ? invHistorySpId : '';
+  let html = `
+  <div class="if-label" style="margin-bottom:6px;">품종 필터</div>
+  <select id="historySpFilter" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:14px;">
+    <option value="">전체 품종</option>
+    ${allSp.map(s=>`<option value="${s.id}" ${filterSpId===s.id?'selected':''}>${s.name} (${s.category})</option>`).join('')}
+  </select>`;
+
+  // 모든 이벤트를 하나의 타임라인으로 통합
+  const events = [];
+  (state.stockIn||[]).forEach(r=>{
+    const sp = getSp(r.speciesId);
+    if(!filterSpId || r.speciesId===filterSpId)
+      events.push({ date:r.date, type:'입고', spName:sp?sp.name:'?', unit:sp?sp.unit:'', qty:+r.quantity, detail:`${r.supplier||'매입처 미기재'} · ${won(r.unitCost)}/단위`, color:'green' });
+  });
+  (state.inventorySales||[]).forEach(r=>{
+    const sp = getSp(r.speciesId);
+    if(!filterSpId || r.speciesId===filterSpId){
+      const cl = getClient(r.clientId);
+      events.push({ date:r.date, type:'판매', spName:sp?sp.name:'?', unit:sp?sp.unit:'', qty:-r.quantity, detail:cl?cl.name:'', color:'red' });
+    }
+  });
+  (state.mortality||[]).forEach(r=>{
+    const sp = getSp(r.speciesId);
+    if(!filterSpId || r.speciesId===filterSpId)
+      events.push({ date:r.occurredAt, type:'폐사', spName:sp?sp.name:'?', unit:sp?sp.unit:'', qty:-r.quantity, detail:`${r.cause} · ${r.stage} · ${r.status}`, color:'red' });
+  });
+  (state.conversions||[]).forEach(r=>{
+    const fSp = getSp(r.fromSpeciesId); const tSp = getSp(r.toSpeciesId);
+    if(!filterSpId || r.fromSpeciesId===filterSpId || r.toSpeciesId===filterSpId){
+      events.push({ date:r.convertedAt, type:'전환출고', spName:fSp?fSp.name:'?', unit:fSp?fSp.unit:'', qty:-r.quantity, detail:`→ ${tSp?tSp.name:'?'}`, color:'red' });
+      events.push({ date:r.convertedAt, type:'전환입고', spName:tSp?tSp.name:'?', unit:tSp?tSp.unit:'', qty:+r.quantity, detail:`← ${fSp?fSp.name:'?'} (${r.batchTag})`, color:'green' });
+    }
+  });
+  events.sort((a,b)=>b.date.localeCompare(a.date));
+
+  if(!events.length){
+    html += `<div class="empty">변동 이력이 없습니다.</div>`;
+  } else {
+    events.forEach(e=>{
+      html += `
+      <div class="inv-row">
+        <div class="ir-top">
+          <span class="ir-name">${e.spName} <span class="ir-tag ${e.color==='green'?'green':'red'}">${e.type}</span></span>
+          <span class="ir-val ${e.color==='red'?'red':'green'}">${e.qty>0?'+':''}${e.qty.toLocaleString()}${e.unit}</span>
+        </div>
+        <div class="ir-meta">${dateLabel(e.date)}${e.detail?' · '+e.detail:''}</div>
+      </div>`;
+    });
+  }
+  return html;
+}
+
 function renderInvSpecies(){
   const CATS=['활어','선어']; const UNITS=['kg','마리'];
   let html = `
@@ -1394,7 +1515,10 @@ function renderInvSpecies(){
   if(!(state.species||[]).length) html += `<div class="empty">등록된 품종이 없습니다.</div>`;
   (state.species||[]).forEach(sp=>{
     const stock = currentStock(sp.id);
-    const rate = mortalityRate(sp.id);
+    const sold  = totalSoldQty(sp.id);
+    const rate  = mortalityRate(sp.id);
+    // 이 품종에 연결된 items
+    const linkedItems = state.items.filter(it=>it.speciesId===sp.id);
     html += `
     <div class="inv-row" style="border:1.5px solid var(--rule);">
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
@@ -1405,7 +1529,10 @@ function renderInvSpecies(){
         ${CATS.map(c=>`<button class="choice-btn ${sp.category===c?'sel-cat':''}" data-specat="${sp.id}" data-cval="${c}">${c}</button>`).join('')}
         ${UNITS.map(u=>`<button class="choice-btn ${sp.unit===u?'sel-unit':''}" data-speunit="${sp.id}" data-uval="${u}">${u}</button>`).join('')}
       </div>
-      <div class="ir-meta">현재고 <b>${stock.toLocaleString()}${sp.unit}</b> · 폐사율 ${rate.toFixed(1)}%</div>
+      <div class="ir-meta">현재고 <b style="color:${stock===0?'var(--stamp)':'var(--green)'};">${stock.toLocaleString()}${sp.unit}</b> · 판매 ${sold}${sp.unit} · 폐사율 ${rate.toFixed(1)}%</div>
+      <div style="font-size:12px;color:#9a9180;margin-top:6px;">
+        연결된 거래 품목: ${linkedItems.length?linkedItems.map(it=>it.name).join(', '):'없음 (아래에서 연결)'}
+      </div>
       <div style="text-align:right;margin-top:6px;">
         <button class="icon-btn" data-delspecies="${sp.id}">삭제</button>
       </div>
@@ -1694,21 +1821,48 @@ function attachHandlers(){
     document.getElementById('addTxBtn')?.addEventListener('click', async ()=>{
       const validLines = cart.filter(l=> Number(l.price)!==0 && (l.flat || Number(l.qty)>0));
       if(validLines.length===0){ alert('단가와 수량을 입력한 품목이 없습니다.'); return; }
+
+      // 재고 부족 확인
+      for(const l of validLines){
+        if(l.flat || l.discount) continue;
+        const it = getItem(l.itemId);
+        if(!it || !it.speciesId) continue;
+        const stock = currentStock(it.speciesId);
+        const qty = Math.round(Number(l.qty)*10)/10;
+        if(qty > stock && stock >= 0){
+          const sp = getSp(it.speciesId);
+          const go = await showConfirm(`${it.name} 재고(${stock}${sp?sp.unit:''})보다 판매량(${qty}${sp?sp.unit:''})이 많습니다. 그대로 진행할까요?`);
+          if(!go) return;
+        }
+      }
+
       const c = getClient(selectedClientId);
       const groupId = uid();
       const list = todayTx();
       let batchTotal = 0;
       const isPaid = cartPayMode==='cash';
+      const newTxIds = [];
       validLines.forEach(l=>{
         const p = Number(l.price);
         const q = l.flat ? 1 : Math.round(Number(l.qty)*10)/10;
         const total = l.flat ? Math.round(p) : Math.round(p*q);
         batchTotal += total;
-        // 단가를 여기서 고치더라도 품목의 기본(오늘) 시세는 바꾸지 않음 - 이 거래처에만 적용
-        list.push({ id: uid(), groupId, clientId: c.id, itemId: l.itemId, price:p, qty:q, total, paid: isPaid, payMethod: isPaid?cartPayMethod:null, flat: !!l.flat, discount: !!l.discount });
+        const txId = uid();
+        newTxIds.push({ txId, itemId: l.itemId, qty: q, flat: l.flat, discount: l.discount });
+        list.push({ id: txId, groupId, clientId: c.id, itemId: l.itemId, price:p, qty:q, total, paid: isPaid, payMethod: isPaid?cartPayMethod:null, flat: !!l.flat, discount: !!l.discount });
       });
       setTodayTx(list);
       if(cartPayMode==='credit'){ c.balance = (c.balance||0) + batchTotal; }
+
+      // 재고 자동 차감: inventorySales 생성
+      if(!state.inventorySales) state.inventorySales = [];
+      newTxIds.forEach(({txId, itemId, qty, flat, discount})=>{
+        if(flat || discount) return; // 고정가/할인은 재고 차감 안 함
+        const it = getItem(itemId);
+        if(!it || !it.speciesId) return;
+        state.inventorySales.push({ id: uid(), speciesId: it.speciesId, quantity: qty, date: workingDate, txId, clientId: c.id });
+      });
+
       cart = []; cartPayMode = 'credit'; cartPayMethod = 'cash'; selectedClientId = null;
       await saveState(); render();
     });
@@ -1723,6 +1877,10 @@ function attachHandlers(){
           const t = list[idx];
           if(!t.paid){ const c=getClient(t.clientId); if(c) c.balance = Math.max(0,(c.balance||0)-t.total); }
           list.splice(idx,1); setTodayTx(list);
+          // 재고 복원: 연결된 inventorySale 제거
+          if(state.inventorySales){
+            state.inventorySales = state.inventorySales.filter(s=>s.txId!==b.dataset.deltx);
+          }
           await saveState(); render();
         }
       };
@@ -1778,7 +1936,11 @@ function attachHandlers(){
         }
         t.price = newPrice; t.qty = newQty; t.total = newTotal; t.paid = newPaid; t.payMethod = newPaid ? editPayMethod : null;
         setTodayTx(list);
-        // 품목의 기본(오늘) 시세는 그대로 두고, 이 거래(이 거래처)에만 단가를 반영
+        // inventorySale qty 동기화
+        if(!t.flat && !t.discount && state.inventorySales){
+          const invSale = state.inventorySales.find(s=>s.txId===t.id);
+          if(invSale) invSale.quantity = newQty;
+        }
         editingTxId = null;
         await saveState(); render();
       });
@@ -1786,6 +1948,15 @@ function attachHandlers(){
   }
 
   if(activeTab==='prices'){
+    // 재고 품종 연결 선택
+    document.querySelectorAll('.sp-link-select').forEach(sel=>{
+      sel.addEventListener('change', async ()=>{
+        const it = getItem(sel.dataset.splinkitem);
+        if(!it) return;
+        it.speciesId = sel.value || undefined;
+        await saveState(); render();
+      });
+    });
     document.querySelectorAll('[data-moveup]').forEach(b=>{
       b.onclick = async ()=>{
         const idx = state.items.findIndex(i=>i.id===b.dataset.moveup);
@@ -1926,6 +2097,7 @@ function attachHandlers(){
           if(!state.stockIn) state.stockIn = [];
           if(!state.mortality) state.mortality = [];
           if(!state.conversions) state.conversions = [];
+          if(!state.inventorySales) state.inventorySales = [];
           ensureItemDefaults();
           await saveState(); render();
         }
@@ -2059,6 +2231,14 @@ function attachHandlers(){
     // 서브탭 전환
     document.querySelectorAll('[data-invtab]').forEach(b=>{
       b.onclick = ()=>{ invSubTab = b.dataset.invtab; render(); };
+    });
+    // 대시보드 품종 카드 클릭 → 변동이력으로 이동
+    document.querySelectorAll('[data-invspecies]').forEach(b=>{
+      b.onclick = ()=>{ invHistorySpId = b.dataset.invspecies; invSubTab='history'; render(); };
+    });
+    // 이력 필터 드롭다운
+    document.getElementById('historySpFilter')?.addEventListener('change', (e)=>{
+      invHistorySpId = e.target.value; render();
     });
 
     // ── 품종관리 ──────────────────────────────────────────────
@@ -2205,6 +2385,36 @@ function attachHandlers(){
   }
 }
 
+// ── pull-to-refresh 차단 (Android Chrome 보조 수단) ──────────────
+(function blockPullToRefresh(){
+  let startY = 0;
+  document.addEventListener('touchstart', e=>{
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', e=>{
+    // 현재 터치가 시작된 실제 스크롤 컨테이너를 찾음
+    let el = e.target;
+    let scrollable = null;
+    while(el && el !== document.body){
+      const style = window.getComputedStyle(el);
+      const overflow = style.overflowY;
+      if((overflow === 'auto' || overflow === 'scroll') && el.scrollHeight > el.clientHeight){
+        scrollable = el; break;
+      }
+      el = el.parentElement;
+    }
+
+    const dy = e.touches[0].clientY - startY; // 양수 = 아래로 당기기
+    const atTop = scrollable ? scrollable.scrollTop <= 0 : window.scrollY <= 0;
+
+    // 최상단에서 아래로 당기는 경우만 차단
+    if(atTop && dy > 0){
+      e.preventDefault();
+    }
+  }, { passive: false });
+})();
+
 (async function init(){
   await loadState();
   render();
@@ -2219,7 +2429,7 @@ function attachHandlers(){
     render();
   });
 })();
-if('serviceWorker' in navigator){ window.addEventListener('load', ()=>{ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }); }
+if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }); }
 </script>
 </body>
 </html>
