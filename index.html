@@ -1632,14 +1632,28 @@ function renderStatement(){
       if(c){
         const txs = txInRange(rangeStart, rangeEnd, c.id);
         const periodTotal = txs.reduce((s,t)=>s+t.total,0);
-        const periodCash = txs.filter(t=>t.paid && t.payMethod==='cash').reduce((s,t)=>s+t.total,0);
-        const periodCard = txs.filter(t=>t.paid && t.payMethod==='card').reduce((s,t)=>s+t.total,0);
+        const periodCash  = txs.filter(t=>t.paid && t.payMethod==='cash').reduce((s,t)=>s+t.total,0);
+        const periodCard  = txs.filter(t=>t.paid && t.payMethod==='card').reduce((s,t)=>s+t.total,0);
         const periodCredit = txs.filter(t=>!t.paid).reduce((s,t)=>s+t.total,0);
         const paymentsForClient = paymentsInRange(rangeStart, rangeEnd, c.id);
         const paymentsTotal = paymentsForClient.reduce((s,p)=>s+p.amount,0);
-        const paymentsCash = paymentsForClient.filter(p=>p.method==='cash').reduce((s,p)=>s+p.amount,0);
-        const paymentsCard = paymentsForClient.filter(p=>p.method==='card').reduce((s,p)=>s+p.amount,0);
-        const priorBalance = Math.max(0, (c.balance||0) - periodCredit + paymentsTotal);
+        const paymentsCash  = paymentsForClient.filter(p=>p.method==='cash').reduce((s,p)=>s+p.amount,0);
+        const paymentsCard  = paymentsForClient.filter(p=>p.method==='card').reduce((s,p)=>s+p.amount,0);
+
+        // ── 이전잔액: rangeStart 이전 거래의 누적 외상 – 입금 ──────────
+        // c.balance 역산 방식 제거 → 전체 거래내역 날짜 필터 재계산
+        const priorTxCredit = Object.entries(state.tx||{})
+          .filter(([d]) => d < rangeStart)
+          .flatMap(([,list]) => list)
+          .filter(t => t.clientId===c.id && !t.paid)
+          .reduce((s,t)=>s+t.total, 0);
+        const priorPayments = (state.payments||[])
+          .filter(p => p.clientId===c.id && p.date < rangeStart)
+          .reduce((s,p)=>s+p.amount, 0);
+        const priorBalance = Math.max(0, priorTxCredit - priorPayments);
+
+        // ── 기말잔액: 이전잔액 + 기간 중 외상 – 기간 중 입금 ─────────
+        const closingBalance = Math.max(0, priorBalance + periodCredit - paymentsTotal);
 
         html += `
         <div class="statement" id="statementPrintArea">
@@ -1665,7 +1679,8 @@ function renderStatement(){
             <div class="st-row sub credit"><span>· 외상(기간 중 발생)</span><span>${won(periodCredit)}</span></div>
             ${paymentsTotal>0?`<div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금액 (현금 ${won(paymentsCash)} · 카드 ${won(paymentsCard)})</span><span>-${won(paymentsTotal)}</span></div>`:''}
             <div class="st-row"><span>이전 잔액</span><span>${won(priorBalance)}</span></div>
-            <div class="st-row total"><span>현재 총 잔액</span><span>${won(c.balance||0)}</span></div>
+            <div class="st-row total"><span>기말 잔액 (${dateLabel(rangeEnd)} 기준)</span><span>${won(closingBalance)}</span></div>
+            ${rangeEnd < realTodayKey() ? `<div class="st-row sub" style="color:#9a9180;"><span>· 오늘 실시간 미수금</span><span>${won(c.balance||0)}</span></div>` : ''}
           </div>
           <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
           ${selectedStatementClientId && state.clientMessages[msgKey(selectedStatementClientId)] ? `<div class="st-message">${state.clientMessages[msgKey(selectedStatementClientId)].replace(/\n/g,'<br>')}</div>` : ''}
@@ -2188,6 +2203,45 @@ function attachHandlers(){
       return await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
     }
 
+    // ── 공유 메시지 제목 생성 ──────────────────────────────────
+    function shareTitle(){
+      const [s, e] = periodToRange(statementPeriod);
+
+      // 날짜 → "M월 D일" 형식
+      function md(dateStr){
+        const [,mm,dd] = dateStr.split('-').map(Number);
+        return `${mm}월 ${dd}일`;
+      }
+
+      // 기간 표시: 같은 달이면 "M월 D일~D일", 다른 달이면 "M월 D일~M월 D일"
+      let dateRange;
+      if(s === e){
+        dateRange = md(s);
+      } else {
+        const [,sm,sd] = s.split('-').map(Number);
+        const [,em,ed] = e.split('-').map(Number);
+        dateRange = sm === em
+          ? `${sm}월 ${sd}일~${ed}일`
+          : `${sm}월 ${sd}일~${em}월 ${ed}일`;
+      }
+
+      // 거래처명 (뷰 모드에 따라 다름)
+      let clientName = '';
+      if(statementView==='summary'){
+        clientName = '전체';
+      } else if(statementView==='chart'){
+        const cc = chartClientId ? getClient(chartClientId) : null;
+        clientName = cc ? cc.name : '전체';
+      } else {
+        const c = getClient(selectedStatementClientId);
+        clientName = c ? c.name : '';
+      }
+
+      return clientName
+        ? `${dateRange} ${clientName} 거래명세서`
+        : `${dateRange} 샛별수산 거래명세서`;
+    }
+
     function statementLabel(){
       if(statementView==='summary') return '전체요약';
       if(statementView==='chart'){
@@ -2203,10 +2257,11 @@ function attachHandlers(){
       btn.disabled = true; btn.textContent = '이미지 만드는 중...';
       try{
         const blob = await captureStatement();
+        const title = shareTitle();
         const fileName = `거래명세서_${statementLabel()}.png`;
         const file = new File([blob], fileName, { type:'image/png' });
         if(navigator.canShare && navigator.canShare({ files:[file] })){
-          await navigator.share({ files:[file], title:'샛별수산 거래명세서', text:`${statementLabel()} 거래명세서` });
+          await navigator.share({ files:[file], title, text: title });
         } else {
           const url = URL.createObjectURL(blob);
           const a = document.createElement('a'); a.href = url; a.download = fileName; a.click();
