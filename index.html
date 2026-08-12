@@ -1583,8 +1583,18 @@ function initTouchDragSort({ containerId, itemSelector, getItems, setItems, afte
   if(!container) return;
 
   const LONG_PRESS_MS = 340;
+  const SCROLL_ZONE   = 90;   // 뷰포트 상/하 가장자리에서 이 px 안으로 들어오면 스크롤 시작
+  const MAX_SPEED     = 14;   // 가장자리 정중앙일 때 최대 스크롤 속도 (px/frame)
   let ds = null;
   const lineEl = getDragLine();
+
+  // 현재 탭에서 실제로 스크롤되는 요소 반환
+  function getScrollEl(){
+    const main = document.getElementById('main');
+    if(main && window.getComputedStyle(main).overflowY==='auto'
+        && main.scrollHeight > main.clientHeight) return main;
+    return document.scrollingElement || document.documentElement;
+  }
 
   // ── 터치 진입 ──────────────────────────────────────────────────
   container.addEventListener('touchstart', e=>{
@@ -1633,9 +1643,13 @@ function initTouchDragSort({ containerId, itemSelector, getItems, setItems, afte
     row.classList.add('drag-dragging');
 
     const allRows = Array.from(container.querySelectorAll(itemSelector));
-    const origRects = allRows.map(el=>el.getBoundingClientRect());
-
-    ds = { fromIdx, toIdx:fromIdx, row, clone, startY:startClientY, startTop:rect.top, allRows, origRects };
+    ds = {
+      fromIdx, toIdx:fromIdx, row, clone,
+      startY:startClientY, startTop:rect.top,
+      allRows,
+      lastClientY: startClientY,  // 자동 스크롤 중 마지막 손가락 위치
+      rafId: null                  // 자동 스크롤 RAF ID
+    };
     lineEl.style.display = 'block';
 
     if(type==='touch'){
@@ -1653,27 +1667,84 @@ function initTouchDragSort({ containerId, itemSelector, getItems, setItems, afte
 
   function handleMove(clientY){
     if(!ds) return;
+    ds.lastClientY = clientY;
+
+    // 클론은 항상 손가락을 따라감 (fixed → viewport 기준)
     ds.clone.style.top = (ds.startTop + clientY - ds.startY) + 'px';
 
-    // 손가락 위에 있는 항목 개수 → 목적 인덱스
+    // 드롭 위치 갱신 (라이브 BoundingRect 사용)
+    refreshDropState(clientY);
+
+    // 자동 스크롤 설정
+    scheduleAutoScroll(clientY);
+  }
+
+  // 드롭 위치 + 지시선 갱신 (스크롤 중에도 호출됨)
+  function refreshDropState(clientY){
+    if(!ds) return;
+
     let above = 0;
-    ds.allRows.forEach((el, i)=>{
+    ds.allRows.forEach(el=>{
       if(el===ds.row) return;
-      if(clientY > ds.origRects[i].top + ds.origRects[i].height/2) above++;
+      const r = el.getBoundingClientRect();
+      if(clientY > r.top + r.height/2) above++;
     });
     ds.toIdx = above;
 
-    // 삽입 지시선: 가장 가까운 갭에 스냅
+    // 지시선: 현재 뷰포트 위치 기준으로 가장 가까운 갭에 스냅
     const snaps = [];
-    ds.origRects.forEach((r, i)=>{ if(i===0) snaps.push(r.top); snaps.push(r.bottom); });
-    const snapY = snaps.reduce((c,y)=>Math.abs(y-clientY)<Math.abs(c-clientY)?y:c, snaps[0]);
-    lineEl.style.top = (snapY - 1.5) + 'px';
+    ds.allRows.forEach((el, i)=>{
+      const r = el.getBoundingClientRect();
+      if(i===0) snaps.push(r.top);
+      snaps.push(r.bottom);
+    });
+    if(snaps.length){
+      const sy = snaps.reduce((c,y)=>Math.abs(y-clientY)<Math.abs(c-clientY)?y:c, snaps[0]);
+      lineEl.style.top = (sy - 1.5) + 'px';
+    }
+  }
+
+  // 자동 스크롤 RAF 루프 관리
+  function scheduleAutoScroll(clientY){
+    if(ds.rafId){ cancelAnimationFrame(ds.rafId); ds.rafId=null; }
+
+    const vh = window.innerHeight;
+    let speed = 0;
+    if(clientY < SCROLL_ZONE){
+      // 상단 가장자리: 위로 스크롤
+      speed = -MAX_SPEED * Math.pow((SCROLL_ZONE - clientY) / SCROLL_ZONE, 1.4);
+    } else if(clientY > vh - SCROLL_ZONE){
+      // 하단 가장자리: 아래로 스크롤
+      speed = MAX_SPEED  * Math.pow((clientY - (vh - SCROLL_ZONE)) / SCROLL_ZONE, 1.4);
+    }
+    if(speed === 0) return;
+
+    const scrollEl = getScrollEl();
+
+    function step(){
+      if(!ds){ return; }
+      const before = scrollEl.scrollTop;
+      scrollEl.scrollTop += speed;
+      if(scrollEl.scrollTop !== before){
+        // 스크롤됐으면 클론 위치와 드롭 위치 모두 재계산
+        // 클론은 fixed라 viewport에 고정 → startTop을 스크롤 델타만큼 보정
+        ds.startTop -= (scrollEl.scrollTop - before);
+        ds.clone.style.top = (ds.startTop + ds.lastClientY - ds.startY) + 'px';
+        refreshDropState(ds.lastClientY);
+      }
+      ds.rafId = requestAnimationFrame(step);
+    }
+    ds.rafId = requestAnimationFrame(step);
   }
 
   function onEnd(){
     if(!ds) return;
     document.removeEventListener('touchmove', onTouchMove);
     document.removeEventListener('mousemove', onMouseMove);
+
+    // 자동 스크롤 RAF 반드시 취소
+    if(ds.rafId){ cancelAnimationFrame(ds.rafId); ds.rafId=null; }
+
     lineEl.style.display = 'none';
     ds.clone.remove();
     ds.row.classList.remove('drag-dragging');
