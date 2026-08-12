@@ -344,9 +344,11 @@
 
   .item-row{background:#fff;border:1.5px solid var(--rule);border-radius:10px;padding:12px 14px;margin-bottom:8px;}
   .item-row .top-line{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;}
-  .order-btns{display:flex;flex-direction:column;gap:2px;flex:0 0 auto;}
-  .order-btn{background:var(--paper-deep);border:1.5px solid var(--rule);border-radius:5px;color:var(--navy);font-size:10px;line-height:1;width:24px;height:18px;cursor:pointer;padding:0;}
-  .order-btn:disabled{opacity:0.3;cursor:default;}
+  /* drag-to-sort */
+  .drag-handle{display:flex;align-items:center;justify-content:center;width:32px;flex-shrink:0;color:#C5B89A;font-size:21px;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none;padding:4px;}
+  .drag-handle:active{color:var(--navy);}
+  .drag-dragging{opacity:0.18;}
+  .drag-drop-line{position:fixed;left:14px;right:14px;height:3px;background:var(--navy);border-radius:2px;pointer-events:none;z-index:1002;display:none;}
   .item-row .iname-input{flex:1;font-weight:700;font-size:15px;border:2px solid transparent;border-radius:6px;padding:5px 6px;background:transparent;color:var(--ink);font-family:'Noto Sans KR',sans-serif;}
   .item-row .iname-input:focus{outline:none;border-color:var(--navy);background:var(--paper);}
   .iname-save-btn{background:var(--navy);color:#fff;border:none;border-radius:7px;padding:5px 10px;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;}
@@ -461,10 +463,10 @@
 
 <div id="confirmOverlay" class="confirm-overlay">
   <div class="confirm-box">
-    <div class="confirm-msg" id="confirmMsg"></div>
+    <div class="confirm-msg" id="confirmMsg" style="text-align:center;line-height:1.7;"></div>
     <div class="confirm-actions">
-      <button class="confirm-yes" id="confirmYes">예</button>
-      <button class="confirm-no" id="confirmNo">아니요</button>
+      <button class="confirm-no" id="confirmNo">취소</button>
+      <button class="confirm-yes" id="confirmYes">확인</button>
     </div>
   </div>
 </div>
@@ -547,21 +549,35 @@ function matchesQuery(name, query){
 function showConfirm(message){
   return new Promise(resolve=>{
     const overlay = document.getElementById('confirmOverlay');
-    document.getElementById('confirmMsg').textContent = message;
+    // textContent → innerHTML로 변경: 줄바꿈(<br>)과 강조(<b>) 지원
+    document.getElementById('confirmMsg').innerHTML = message;
     overlay.classList.add('show');
     const yesBtn = document.getElementById('confirmYes');
-    const noBtn = document.getElementById('confirmNo');
+    const noBtn  = document.getElementById('confirmNo');
     function cleanup(val){
       overlay.classList.remove('show');
       yesBtn.removeEventListener('click', onYes);
       noBtn.removeEventListener('click', onNo);
+      overlay.removeEventListener('click', onOutside);
       resolve(val);
     }
     function onYes(){ cleanup(true); }
-    function onNo(){ cleanup(false); }
+    function onNo(){  cleanup(false); }
+    function onOutside(e){ if(e.target===overlay) cleanup(false); }
     yesBtn.addEventListener('click', onYes);
     noBtn.addEventListener('click', onNo);
+    overlay.addEventListener('click', onOutside);
   });
+}
+
+// 결제 확인 전용 팝업: 거래처명·금액·잔액을 명확히 표시
+function showPayConfirm({ clientName, label, amount, remaining }){
+  const remainStr = remaining <= 0 ? '0원' : won(remaining);
+  const msg = `<b>${clientName}</b><br><br>`
+    + `${label}<br>`
+    + `<span style="font-size:22px;color:var(--stamp);">${won(Math.abs(amount))}</span><br><br>`
+    + `정산 후 잔액: <b>${remainStr}</b>`;
+  return showConfirm(msg);
 }
 
 function ensureItemDefaults(){
@@ -853,12 +869,9 @@ function renderPrices(){
         ? `<span style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px;background:${currentStock(it.speciesId)===0?'#FBEAE7':'#EAF3EE'};color:${currentStock(it.speciesId)===0?'var(--stamp)':'var(--green)'};">재고 ${currentStock(it.speciesId).toLocaleString()}${linkedSp.unit}</span>`
         : '';
       html += `
-      <div class="item-row">
+      <div class="item-row" data-drag-id="${it.id}">
         <div class="top-line">
-          <div class="order-btns">
-            <button class="order-btn" data-moveup="${it.id}" ${idx===0?'disabled':''}>▲</button>
-            <button class="order-btn" data-movedown="${it.id}" ${idx===state.items.length-1?'disabled':''}>▼</button>
-          </div>
+          <div class="drag-handle" title="길게 눌러 순서 변경">⠿</div>
           <input type="text" class="iname-input" data-nameitem="${it.id}" value="${it.name}" placeholder="품목 이름">
           <button class="iname-save-btn" data-namesave="${it.id}" style="display:none;">저장</button>
           <button class="icon-btn" data-delitem="${it.id}">삭제</button>
@@ -890,11 +903,8 @@ function renderClientsListHtml(){
   return filtered.map((c, filteredIdx)=>{
     const realIdx = state.clients.indexOf(c);
     return `
-      <div class="client-row">
-        <div class="order-btns" style="flex:0 0 auto;">
-          <button class="order-btn" data-moveclientup="${c.id}" ${realIdx===0?'disabled':''}>▲</button>
-          <button class="order-btn" data-moveclientdown="${c.id}" ${realIdx===state.clients.length-1?'disabled':''}>▼</button>
-        </div>
+      <div class="client-row" data-drag-id="${c.id}">
+        <div class="drag-handle" title="길게 눌러 순서 변경">⠿</div>
         <button class="star ${c.favorite?'on':''}" data-fav="${c.id}">★</button>
         <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:6px;">
@@ -911,18 +921,7 @@ function attachClientRowHandlers(){
   document.querySelectorAll('[data-fav]').forEach(b=>{
     b.onclick = async ()=>{ const c=getClient(b.dataset.fav); c.favorite=!c.favorite; await saveState(); render(); };
   });
-  document.querySelectorAll('[data-moveclientup]').forEach(b=>{
-    b.onclick = async ()=>{
-      const idx = state.clients.findIndex(c=>c.id===b.dataset.moveclientup);
-      if(idx>0){ [state.clients[idx-1],state.clients[idx]]=[state.clients[idx],state.clients[idx-1]]; await saveState(); render(); }
-    };
-  });
-  document.querySelectorAll('[data-moveclientdown]').forEach(b=>{
-    b.onclick = async ()=>{
-      const idx = state.clients.findIndex(c=>c.id===b.dataset.moveclientdown);
-      if(idx>-1 && idx<state.clients.length-1){ [state.clients[idx+1],state.clients[idx]]=[state.clients[idx],state.clients[idx+1]]; await saveState(); render(); }
-    };
-  });
+
   document.querySelectorAll('[data-clientname]').forEach(inp=>{
     const saveBtn = inp.closest('div[style]')?.querySelector(`[data-clientnamesave="${inp.dataset.clientname}"]`);
     inp.addEventListener('input', ()=>{
@@ -1008,15 +1007,26 @@ function attachBalanceRowHandlers(){
   });
   document.querySelectorAll('[data-settle]').forEach(b=>{
     b.onclick = async ()=>{
+      if(b.disabled) return;
       const id = b.dataset.settle;
+      const c = getClient(id);
+      if(!c || c.balance <= 0) return;
+
+      const ok = await showPayConfirm({
+        clientName: c.name,
+        label: `전액 정산 (${balanceMethod[id]==='card'?'카드':'현금'})`,
+        amount: c.balance,
+        remaining: 0
+      });
+      if(!ok) return;
+
+      // 확인 후 중복 탭 방지
+      b.disabled = true;
       const stampEl = document.getElementById('stamp-'+id);
       stampEl?.classList.add('show');
       setTimeout(async ()=>{
-        const c = getClient(id);
-        if(c && c.balance>0){
-          state.payments.push({ id: uid(), clientId: c.id, amount: c.balance, date: workingDate, type:'full', method: balanceMethod[id]||'cash' });
-          c.balance = 0;
-        }
+        state.payments.push({ id: uid(), clientId: c.id, amount: c.balance, date: workingDate, type:'full', method: balanceMethod[id]||'cash' });
+        c.balance = 0;
         await saveState(); render();
       }, 550);
     };
@@ -1030,12 +1040,25 @@ function attachBalanceRowHandlers(){
   });
   document.querySelectorAll('[data-partial]').forEach(b=>{
     b.onclick = async ()=>{
+      if(b.disabled) return;
       const id = b.dataset.partial;
       const input = document.getElementById('pay-'+id);
       const amt = Number(input.value||0);
       if(amt===0){ alert('입금된 금액을 입력해주세요.'); return; }
       const c = getClient(id);
-      c.balance = Math.max(0, (c.balance||0) - amt);
+      const remaining = Math.max(0, (c.balance||0) - amt);
+
+      const ok = await showPayConfirm({
+        clientName: c.name,
+        label: `입금 반영 (${balanceMethod[id]==='card'?'카드':'현금'})`,
+        amount: amt,
+        remaining
+      });
+      if(!ok) return;
+
+      // 확인 후 중복 탭 방지
+      b.disabled = true;
+      c.balance = remaining;
       state.payments.push({ id: uid(), clientId: c.id, amount: amt, date: workingDate, type:'partial', method: balanceMethod[id]||'cash' });
       await saveState(); render();
     };
@@ -1542,6 +1565,132 @@ function renderInvSpecies(){
   return html;
 }
 
+// ─────────────────────────────────────────────────────────────────
+//  드래그-정렬 (터치 우선, 마우스 보조)
+// ─────────────────────────────────────────────────────────────────
+let _dragSortLine = null;
+function getDragLine(){
+  if(!_dragSortLine){
+    _dragSortLine = document.createElement('div');
+    _dragSortLine.className = 'drag-drop-line';
+    document.body.appendChild(_dragSortLine);
+  }
+  return _dragSortLine;
+}
+
+function initTouchDragSort({ containerId, itemSelector, getItems, setItems, afterDrop }){
+  const container = document.getElementById(containerId);
+  if(!container) return;
+
+  const LONG_PRESS_MS = 340;
+  let ds = null;
+  const lineEl = getDragLine();
+
+  // ── 터치 진입 ──────────────────────────────────────────────────
+  container.addEventListener('touchstart', e=>{
+    if(ds) return;
+    const handle = e.target.closest('.drag-handle');
+    if(!handle) return;
+    const row = handle.closest(itemSelector);
+    if(!row?.dataset.dragId) return;
+
+    const startY = e.touches[0].clientY;
+    let moved = false;
+    let timer = setTimeout(()=>{ if(!moved) beginDrag(row, startY, 'touch'); }, LONG_PRESS_MS);
+
+    function cancelTimer(){ moved=true; clearTimeout(timer); }
+    row.addEventListener('touchmove', cancelTimer, { once:true, passive:true });
+    row.addEventListener('touchend',  cancelTimer, { once:true, passive:true });
+  }, { passive:true });
+
+  // ── 마우스 진입 (데스크탑 보조) ────────────────────────────────
+  container.addEventListener('mousedown', e=>{
+    if(ds || !e.target.closest('.drag-handle')) return;
+    const row = e.target.closest(itemSelector);
+    if(!row?.dataset.dragId) return;
+    e.preventDefault();
+    beginDrag(row, e.clientY, 'mouse');
+  });
+
+  function beginDrag(row, startClientY, type){
+    const items = getItems();
+    const id = row.dataset.dragId;
+    const fromIdx = items.findIndex(x=>x.id===id);
+    if(fromIdx < 0) return;
+    if(navigator.vibrate) navigator.vibrate(30);
+
+    const rect = row.getBoundingClientRect();
+    const clone = row.cloneNode(true);
+    Object.assign(clone.style, {
+      position:'fixed', top:rect.top+'px', left:rect.left+'px',
+      width:rect.width+'px', margin:'0', zIndex:'1001',
+      boxShadow:'0 14px 40px rgba(28,58,75,0.32)',
+      opacity:'0.96', pointerEvents:'none',
+      transform:'scale(1.025)',
+      borderRadius:'12px', background:'#fff',
+    });
+    document.body.appendChild(clone);
+    row.classList.add('drag-dragging');
+
+    const allRows = Array.from(container.querySelectorAll(itemSelector));
+    const origRects = allRows.map(el=>el.getBoundingClientRect());
+
+    ds = { fromIdx, toIdx:fromIdx, row, clone, startY:startClientY, startTop:rect.top, allRows, origRects };
+    lineEl.style.display = 'block';
+
+    if(type==='touch'){
+      document.addEventListener('touchmove', onTouchMove, { passive:false });
+      document.addEventListener('touchend',   onEnd, { once:true });
+      document.addEventListener('touchcancel', onEnd, { once:true });
+    } else {
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup',   onEnd, { once:true });
+    }
+  }
+
+  function onTouchMove(e){ e.preventDefault(); handleMove(e.touches[0].clientY); }
+  function onMouseMove(e){ handleMove(e.clientY); }
+
+  function handleMove(clientY){
+    if(!ds) return;
+    ds.clone.style.top = (ds.startTop + clientY - ds.startY) + 'px';
+
+    // 손가락 위에 있는 항목 개수 → 목적 인덱스
+    let above = 0;
+    ds.allRows.forEach((el, i)=>{
+      if(el===ds.row) return;
+      if(clientY > ds.origRects[i].top + ds.origRects[i].height/2) above++;
+    });
+    ds.toIdx = above;
+
+    // 삽입 지시선: 가장 가까운 갭에 스냅
+    const snaps = [];
+    ds.origRects.forEach((r, i)=>{ if(i===0) snaps.push(r.top); snaps.push(r.bottom); });
+    const snapY = snaps.reduce((c,y)=>Math.abs(y-clientY)<Math.abs(c-clientY)?y:c, snaps[0]);
+    lineEl.style.top = (snapY - 1.5) + 'px';
+  }
+
+  function onEnd(){
+    if(!ds) return;
+    document.removeEventListener('touchmove', onTouchMove);
+    document.removeEventListener('mousemove', onMouseMove);
+    lineEl.style.display = 'none';
+    ds.clone.remove();
+    ds.row.classList.remove('drag-dragging');
+
+    const { fromIdx, toIdx } = ds;
+    ds = null;
+
+    if(fromIdx !== toIdx){
+      const arr = getItems();
+      const [item] = arr.splice(fromIdx, 1);
+      arr.splice(toIdx, 0, item);
+      setItems(arr);
+      afterDrop();
+    }
+  }
+}
+
 function renderStatement(){
   let html = '';
   if(state.clients.length===0){
@@ -1973,27 +2122,13 @@ function attachHandlers(){
         await saveState(); render();
       });
     });
-    document.querySelectorAll('[data-moveup]').forEach(b=>{
-      b.onclick = async ()=>{
-        const idx = state.items.findIndex(i=>i.id===b.dataset.moveup);
-        if(idx>0){
-          const tmp = state.items[idx-1];
-          state.items[idx-1] = state.items[idx];
-          state.items[idx] = tmp;
-          await saveState(); render();
-        }
-      };
-    });
-    document.querySelectorAll('[data-movedown]').forEach(b=>{
-      b.onclick = async ()=>{
-        const idx = state.items.findIndex(i=>i.id===b.dataset.movedown);
-        if(idx>-1 && idx<state.items.length-1){
-          const tmp = state.items[idx+1];
-          state.items[idx+1] = state.items[idx];
-          state.items[idx] = tmp;
-          await saveState(); render();
-        }
-      };
+    // 드래그 정렬 초기화 (▲▼ 버튼 대체)
+    initTouchDragSort({
+      containerId: 'main',
+      itemSelector: '.item-row',
+      getItems: () => state.items,
+      setItems: arr => state.items = arr,
+      afterDrop: async () => { await saveState(); render(); }
     });
     document.getElementById('saveItemBtn')?.addEventListener('click', async ()=>{
       const nameEl = document.getElementById('newItemName');
@@ -2075,6 +2210,14 @@ function attachHandlers(){
       await saveState(); render();
     });
     attachClientRowHandlers();
+    // 드래그 정렬 초기화 (▲▼ 버튼 대체)
+    initTouchDragSort({
+      containerId: 'clientsListContainer',
+      itemSelector: '.client-row',
+      getItems: () => state.clients,
+      setItems: arr => state.clients = arr,
+      afterDrop: async () => { await saveState(); render(); }
+    });
 
     document.getElementById('backupBtn')?.addEventListener('click', async ()=>{
       const dateStr = realTodayKey();
