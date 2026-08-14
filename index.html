@@ -4,14 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>샛별수산 거래장부</title>
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1C3A4B">
-<link rel="icon" href="icon-192.png">
-<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<!-- iOS PWA -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="샛별수산">
 <meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#1C3A4B">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@700;900&family=Noto+Sans+KR:wght@400;500;700;900&display=swap" rel="stylesheet">
 <style>
@@ -31,7 +32,11 @@
        overscroll-behavior-y:none → 당겨서 새로고침 차단, 내부 스크롤은 영향 없음 */
     overscroll-behavior-y: none;
   }
-  body{min-height:100dvh;}
+  body{
+    /* iOS Safari: 100dvh는 지원되나 -webkit-fill-available로 구버전 폴백 */
+    min-height: -webkit-fill-available;
+    min-height: 100dvh;
+  }
   .wrap{
     width:100%;
     min-height:100dvh;
@@ -56,7 +61,7 @@
 
   .confirm-overlay{position:fixed;inset:0;background:rgba(20,20,18,0.55);display:none;align-items:center;justify-content:center;z-index:100;padding:32px;}
   .confirm-overlay.show{display:flex;}
-  .confirm-box{background:#fff;border-radius:16px;padding:28px 24px;max-width:420px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,0.25);}
+  .confirm-box{background:#fff;border-radius:18px;padding:32px 28px;max-width:460px;width:100%;box-shadow:0 16px 48px rgba(0,0,0,0.28);}
   .confirm-msg{font-size:18px;font-weight:700;color:var(--ink);line-height:1.5;margin-bottom:22px;text-align:center;}
   .confirm-actions{display:flex;gap:12px;}
   .confirm-actions button{flex:1;padding:16px;border-radius:11px;font-weight:900;font-size:17px;border:none;cursor:pointer;}
@@ -202,7 +207,8 @@
   }
 
   /* ── 품목 그리드: 태블릿 3열 (portrait) ── */
-  .item-grid { grid-template-columns: 1fr 1fr 1fr; }
+  /* iPad mini 7 portrait 744px: item-grid 4열 */
+  .item-grid { grid-template-columns: repeat(4, 1fr); }
 
   /* ── 명세서 period 그리드: 7열 (portrait) ── */
   .period-grid { grid-template-columns: repeat(7, 1fr); }
@@ -216,7 +222,7 @@
     .wrap {
       display: grid;
       grid-template-rows: auto 1fr;
-      grid-template-columns: 200px 1fr;
+      grid-template-columns: 240px 1fr; /* iPad mini 7 landscape 1133px 최적화 */
       height: 100dvh;
       overflow: hidden;
     }
@@ -278,12 +284,12 @@
       margin: 0;
     }
 
-    /* 가로모드 그리드 확장 */
-    .fav-grid { grid-template-columns: repeat(5, 1fr); }
-    .item-grid { grid-template-columns: repeat(4, 1fr); }
+    /* 가로모드 그리드: iPad mini 7 landscape 1133px 기준 */
+    .fav-grid { grid-template-columns: repeat(6, 1fr); }
+    .item-grid { grid-template-columns: repeat(5, 1fr); }
     .metric-grid { grid-template-columns: repeat(4, 1fr); }
     .period-grid { grid-template-columns: repeat(7, 1fr); }
-    .choice-grid { grid-template-columns: repeat(5, 1fr); }
+    .choice-grid { grid-template-columns: repeat(6, 1fr); }
 
     /* 가로모드: 헤더 컴팩트 처리 */
     .date-pick-row { margin-top: 4px; }
@@ -345,7 +351,11 @@
   .item-row{background:#fff;border:1.5px solid var(--rule);border-radius:10px;padding:12px 14px;margin-bottom:8px;}
   .item-row .top-line{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px;}
   /* drag-to-sort */
-  .drag-handle{display:flex;align-items:center;justify-content:center;width:32px;flex-shrink:0;color:#C5B89A;font-size:21px;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none;padding:4px;}
+  .drag-handle{display:flex;align-items:center;justify-content:center;width:32px;flex-shrink:0;color:#C5B89A;font-size:21px;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;padding:4px;}
+  /* iOS: 드래그 행 길게 누르기 컨텍스트 메뉴·텍스트 선택 차단 */
+  .client-row,.item-row{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none;}
+  /* iOS: 드래그 중 인풋 텍스트만 선택 허용 */
+  .client-row input,.item-row input,.client-row textarea,.item-row textarea{-webkit-user-select:text;user-select:text;}
   .drag-handle:active{color:var(--navy);}
   .drag-dragging{opacity:0.18;}
   .drag-drop-line{position:fixed;left:14px;right:14px;height:3px;background:var(--navy);border-radius:2px;pointer-events:none;z-index:1002;display:none;}
@@ -611,6 +621,8 @@ async function loadState(){
   if(!state.conversions) state.conversions = [];
   if(!state.inventorySales) state.inventorySales = [];
   ensureItemDefaults();
+  // c.balance 증분 캐시를 원본 데이터와 동기화 (수정이력 오차 자동 보정)
+  syncAllBalances();
 }
 async function saveState(){
   try{
@@ -621,9 +633,72 @@ async function saveState(){
 
 function getClient(id){ return state.clients.find(c=>c.id===id); }
 function getItem(id){ return state.items.find(i=>i.id===id); }
+
+// ────────────────────────────────────────────────────────────────
+//  공통 잔액 계산 함수
+//  미수금 탭 · 명세서 탭이 모두 이 함수를 사용하여 일관성 보장
+//  c.balance(증분 캐시)에 의존하지 않고 원본 거래 데이터에서 직접 재계산
+//
+//  calcClientBalance(id)           → 전체 누적 (미수금 탭 현재 미수금)
+//  calcClientBalance(id, '2026-08-01') → 해당 날짜 이전 잔액 (명세서 이전잔액)
+//  calcClientBalance(id, start, end)   → start~end 기말잔액 (명세서 기말잔액)
+// ────────────────────────────────────────────────────────────────
+function calcClientBalance(clientId, beforeDate, endDate) {
+  const txLimit  = endDate   || '9999-12-31'; // tx 포함 상한 날짜
+  const txFloor  = beforeDate || '0000-01-01'; // tx 포함 하한 날짜 (이전잔액 계산시)
+  const payLimit = endDate   || '9999-12-31'; // 입금 포함 상한
+  const payFloor = beforeDate || '0000-01-01'; // 입금 포함 하한
+
+  // 인수 1개: 전체 누적
+  // 인수 2개: beforeDate 이전까지의 누적 (= 이전잔액)
+  // 인수 3개: start~end 기간의 이전잔액 + 기간 내 변동 = 기말잔액
+
+  if(arguments.length === 0 || arguments.length === 1){
+    // 전체 기간 누적 (미수금 탭용)
+    const credit = Object.values(state.tx||{})
+      .flat().filter(t=>t.clientId===clientId && !t.paid)
+      .reduce((s,t)=>s+t.total,0);
+    const paid = (state.payments||[])
+      .filter(p=>p.clientId===clientId)
+      .reduce((s,p)=>s+p.amount,0);
+    return Math.max(0, credit - paid);
+  } else if(arguments.length === 2){
+    // beforeDate 직전까지 누적 (명세서 이전잔액용)
+    const credit = Object.entries(state.tx||{})
+      .filter(([d])=>d < beforeDate)
+      .flatMap(([,l])=>l)
+      .filter(t=>t.clientId===clientId && !t.paid)
+      .reduce((s,t)=>s+t.total,0);
+    const paid = (state.payments||[])
+      .filter(p=>p.clientId===clientId && p.date < beforeDate)
+      .reduce((s,p)=>s+p.amount,0);
+    return Math.max(0, credit - paid);
+  } else {
+    // start(beforeDate)~end(endDate) 기말잔액
+    const priorCredit = Object.entries(state.tx||{})
+      .filter(([d])=>d < beforeDate).flatMap(([,l])=>l)
+      .filter(t=>t.clientId===clientId && !t.paid).reduce((s,t)=>s+t.total,0);
+    const priorPaid = (state.payments||[])
+      .filter(p=>p.clientId===clientId && p.date < beforeDate)
+      .reduce((s,p)=>s+p.amount,0);
+    const periodCredit = Object.entries(state.tx||{})
+      .filter(([d])=>d>=beforeDate && d<=endDate).flatMap(([,l])=>l)
+      .filter(t=>t.clientId===clientId && !t.paid).reduce((s,t)=>s+t.total,0);
+    const periodPaid = (state.payments||[])
+      .filter(p=>p.clientId===clientId && p.date>=beforeDate && p.date<=endDate)
+      .reduce((s,p)=>s+p.amount,0);
+    const prior = Math.max(0, priorCredit - priorPaid);
+    return Math.max(0, prior + periodCredit - periodPaid);
+  }
+}
+
+// 앱 기동 · 백업 복원 후 c.balance를 원본 데이터와 동기화
+function syncAllBalances(){
+  (state.clients||[]).forEach(c=>{ c.balance = calcClientBalance(c.id); });
+}
 function todayTx(){ return state.tx[workingDate] || []; }
 function setTodayTx(list){ state.tx[workingDate] = list; }
-function totalBalance(){ return state.clients.reduce((s,c)=>s+(c.balance||0),0); }
+function totalBalance(){ return (state.clients||[]).reduce((s,c)=>s+calcClientBalance(c.id),0); }
 function itemHasTodayPrice(it){ return it.priceDate === workingDate && it.price!==0; }
 
 function render(){
@@ -973,15 +1048,23 @@ function renderClients(){
 }
 
 function renderBalanceListHtml(){
-  const withBalance = state.clients.filter(c=>c.balance>0).sort((a,b)=>b.balance-a.balance);
-  const filteredBalance = balanceTabSearch ? withBalance.filter(c=>matchesQuery(c.name, balanceTabSearch)) : withBalance;
-  if(filteredBalance.length===0){
-    return `<div class="empty">'${balanceTabSearch}'와 일치하는 거래처가 없습니다.</div>`;
+  // calcClientBalance 재계산 기준으로 미수금 있는 거래처 필터
+  const withBalance = state.clients
+    .map(c=>({ c, bal: calcClientBalance(c.id) }))
+    .filter(x=>x.bal>0)
+    .sort((a,b)=>b.bal-a.bal);
+  const filtered = balanceTabSearch
+    ? withBalance.filter(x=>matchesQuery(x.c.name, balanceTabSearch))
+    : withBalance;
+  if(filtered.length===0){
+    return balanceTabSearch
+      ? `<div class="empty">'${balanceTabSearch}'와 일치하는 거래처가 없습니다.</div>`
+      : `<div class="empty">현재 미수금이 있는 거래처가 없습니다.</div>`;
   }
-  return filteredBalance.map(c=>`
+  return filtered.map(({c, bal})=>`
       <div class="balance-row" id="brow-${c.id}">
         <div class="bname">${c.name}</div>
-        <div class="bamt">${won(c.balance)}</div>
+        <div class="bamt" title="원본 데이터에서 재계산한 현재 미수금">${won(bal)}</div>
         <div class="method-toggle" id="bmethod-${c.id}">
           <button class="${(balanceMethod[c.id]||'cash')==='cash'?'active':''}" data-bmethod="${c.id}" data-mval="cash">현금</button>
           <button class="${balanceMethod[c.id]==='card'?'active':''}" data-bmethod="${c.id}" data-mval="card">카드</button>
@@ -1066,9 +1149,10 @@ function attachBalanceRowHandlers(){
 }
 
 function renderBalance(){
-  const withBalance = state.clients.filter(c=>c.balance>0).sort((a,b)=>b.balance-a.balance);
-  let html = `<div class="total-out"><div class="l">전체 미수금 합계</div><div class="v">${won(totalBalance())}</div></div>`;
-  if(withBalance.length===0){
+  const totalBal = (state.clients||[]).reduce((s,c)=>s+calcClientBalance(c.id), 0);
+  const anyWithBalance = (state.clients||[]).some(c=>calcClientBalance(c.id)>0);
+  let html = `<div class="total-out"><div class="l">전체 미수금 합계 (현재 기준)</div><div class="v">${won(totalBal)}</div></div>`;
+  if(!anyWithBalance){
     html += `<div class="empty">현재 미수금이 있는 거래처가 없습니다.</div>`;
   } else {
     html += `<input type="text" class="search-input" id="balanceSearchInput" placeholder="거래처 검색" value="${balanceTabSearch}">`;
@@ -1861,19 +1945,14 @@ function renderStatement(){
         const paymentsCard  = paymentsForClient.filter(p=>p.method==='card').reduce((s,p)=>s+p.amount,0);
 
         // ── 이전잔액: rangeStart 이전 거래의 누적 외상 – 입금 ──────────
-        // c.balance 역산 방식 제거 → 전체 거래내역 날짜 필터 재계산
-        const priorTxCredit = Object.entries(state.tx||{})
-          .filter(([d]) => d < rangeStart)
-          .flatMap(([,list]) => list)
-          .filter(t => t.clientId===c.id && !t.paid)
-          .reduce((s,t)=>s+t.total, 0);
-        const priorPayments = (state.payments||[])
-          .filter(p => p.clientId===c.id && p.date < rangeStart)
-          .reduce((s,p)=>s+p.amount, 0);
-        const priorBalance = Math.max(0, priorTxCredit - priorPayments);
+        // calcClientBalance 공통 함수 사용 (미수금 탭과 동일한 계산 기준)
+        const priorBalance = calcClientBalance(c.id, rangeStart);
 
-        // ── 기말잔액: 이전잔액 + 기간 중 외상 – 기간 중 입금 ─────────
-        const closingBalance = Math.max(0, priorBalance + periodCredit - paymentsTotal);
+        // ── 기말잔액: rangeStart~rangeEnd 기간의 기말 잔액 ─────────
+        const closingBalance = calcClientBalance(c.id, rangeStart, rangeEnd);
+
+        // ── 현재 실시간 미수금 (오늘 기준) ─────────────────────────
+        const currentBal = calcClientBalance(c.id);
 
         html += `
         <div class="statement" id="statementPrintArea">
@@ -1898,9 +1977,9 @@ function renderStatement(){
             <div class="st-row sub"><span>· 즉시결제(카드)</span><span>${won(periodCard)}</span></div>
             <div class="st-row sub credit"><span>· 외상(기간 중 발생)</span><span>${won(periodCredit)}</span></div>
             ${paymentsTotal>0?`<div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금액 (현금 ${won(paymentsCash)} · 카드 ${won(paymentsCard)})</span><span>-${won(paymentsTotal)}</span></div>`:''}
-            <div class="st-row"><span>이전 잔액</span><span>${won(priorBalance)}</span></div>
+            <div class="st-row"><span>기간 시작 전 잔액 (${dateLabel(rangeStart)} 이전 누적)</span><span>${won(priorBalance)}</span></div>
             <div class="st-row total"><span>기말 잔액 (${dateLabel(rangeEnd)} 기준)</span><span>${won(closingBalance)}</span></div>
-            ${rangeEnd < realTodayKey() ? `<div class="st-row sub" style="color:#9a9180;"><span>· 오늘 실시간 미수금</span><span>${won(c.balance||0)}</span></div>` : ''}
+            ${rangeEnd < realTodayKey() ? `<div class="st-row sub" style="color:#9a9180;font-size:12px;"><span>· 오늘 현재 미수금 (미수금 탭과 동일)</span><span>${won(currentBal)}</span></div>` : ''}
           </div>
           <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
           ${selectedStatementClientId && state.clientMessages[msgKey(selectedStatementClientId)] ? `<div class="st-message">${state.clientMessages[msgKey(selectedStatementClientId)].replace(/\n/g,'<br>')}</div>` : ''}
@@ -2329,6 +2408,7 @@ function attachHandlers(){
           if(!state.conversions) state.conversions = [];
           if(!state.inventorySales) state.inventorySales = [];
           ensureItemDefaults();
+          syncAllBalances(); // 백업 파일의 c.balance 오차도 자동 보정
           await saveState(); render();
         }
       }catch(err){ alert('백업 파일을 읽을 수 없습니다. 올바른 백업 파일인지 확인해주세요.'); }
@@ -2655,6 +2735,29 @@ function attachHandlers(){
   }
 }
 
+
+// ── iOS Safari 특화 처리 ─────────────────────────────────────────
+(function iosCompat(){
+  // 1. 가상 키보드 노출 시 활성 입력창이 가려지지 않도록 스크롤
+  //    (iOS Safari에서 소프트 키보드가 올라오면 visualViewport가 수축)
+  if('visualViewport' in window){
+    window.visualViewport.addEventListener('resize', ()=>{
+      const el = document.activeElement;
+      if(el && (el.tagName==='INPUT' || el.tagName==='TEXTAREA')){
+        // 키보드 높이만큼 뷰포트가 줄었을 때 입력창을 화면 안으로 스크롤
+        setTimeout(()=>{ el.scrollIntoView({ behavior:'smooth', block:'nearest' }); }, 100);
+      }
+    });
+  }
+
+  // 2. 드래그 앤 드롭 중 iOS 길게 누르기 컨텍스트 메뉴 차단
+  //    (-webkit-touch-callout: none CSS와 함께 이중 보호)
+  document.addEventListener('contextmenu', e=>{
+    if(e.target.closest('.drag-handle') || e.target.closest('.client-row[data-drag-id]') || e.target.closest('.item-row[data-drag-id]')){
+      e.preventDefault();
+    }
+  });
+})();
 
 (async function init(){
   await loadState();
