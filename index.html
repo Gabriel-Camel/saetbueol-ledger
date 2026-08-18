@@ -817,13 +817,13 @@ function renderToday(){
             const isDiscount = !!line.discount;
             const sub = isFlat ? (Number(line.price)||0) : (Number(line.price)||0)*(Number(line.qty)||0);
             const priceInputHtml = isDiscount
-              ? `<input type="number" inputmode="numeric" min="0" class="cl-price" data-cartidx="${idx}" placeholder="할인 금액 (원)" value="${line.price? Math.abs(line.price) : ''}">`
-              : `<input type="number" inputmode="numeric" class="cl-price" data-cartidx="${idx}" placeholder="${isFlat?'가격':'단가/kg'}" value="${line.price||''}">`;
+              ? `<input type="text" inputmode="numeric" pattern="[0-9]*" class="cl-price" data-cartidx="${idx}" placeholder="할인 금액 (원)" value="${line.price? Math.abs(line.price) : ''}">`
+              : `<input type="text" inputmode="numeric" pattern="[0-9]*" class="cl-price" data-cartidx="${idx}" placeholder="${isFlat?'가격':'단가/kg'}" value="${line.price||''}">`;
             html += `
             <div class="cart-line">
               <div class="cl-name">${it?it.name:''}${isDiscount?' <span class="cl-flat-tag">할인</span>':(isFlat?' <span class="cl-flat-tag">고정가</span>':'')}</div>
               <div class="cl-fields">
-                ${isFlat?'':`<input type="number" inputmode="decimal" step="0.1" class="cl-qty" data-cartidx="${idx}" placeholder="kg" value="${line.qty||''}"><span class="cl-x">×</span>`}
+                ${isFlat?'':`<input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" class="cl-qty" data-cartidx="${idx}" placeholder="kg" value="${line.qty||''}"><span class="cl-x">×</span>`}
                 ${priceInputHtml}
                 ${isDiscount?'':`<button type="button" class="sign-btn" data-signcart="${idx}">±</button>`}
                 <span class="cl-sub">${won(sub)}</span>
@@ -880,10 +880,10 @@ function renderToday(){
           <div class="tx-edit">
             <div class="tx-edit-name">${it?it.name:'(삭제된 품목)'} 수정</div>
             <div class="field-row">
-              ${t.flat?'':`<div class="field"><label>수량 (kg)</label><input type="number" inputmode="decimal" step="0.1" id="editQty" value="${t.qty}"></div>`}
+              ${t.flat?'':`<div class="field"><label>수량 (kg)</label><input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" id="editQty" value="${t.qty}"></div>`}
               <div class="field"><label>${t.discount?'할인 금액 (원)':(t.flat?'가격 (원)':'단가 (원/kg)')}</label>
                 <div style="display:flex;gap:6px;">
-                  <input type="number" inputmode="numeric" id="editPrice" value="${t.discount? Math.abs(t.price) : t.price}" style="flex:1;">
+                  <input type="text" inputmode="numeric" pattern="[0-9]*" id="editPrice" value="${t.discount? Math.abs(t.price) : t.price}" style="flex:1;">
                   ${t.discount?'':`<button type="button" class="sign-btn" id="editPriceSignBtn">±</button>`}
                 </div>
               </div>
@@ -925,7 +925,7 @@ function renderPrices(){
   let html = `
   <div class="add-form" id="addItemForm" style="display:${state._showAddItem?'block':'none'}">
     <input type="text" id="newItemName" placeholder="품목 이름 (예: 자연산 광어)">
-    <input type="number" inputmode="numeric" id="newItemPrice" placeholder="오늘 단가 · 모르면 비워두세요">
+    <input type="text" inputmode="numeric" pattern="[0-9]*" id="newItemPrice" placeholder="오늘 단가 · 모르면 비워두세요">
     <div class="row"><input type="checkbox" id="newItemFlat" style="width:18px;height:18px;"> 고정 가격 품목 (kg당 단가 아님 · 공임, 운임 등)</div>
     <button class="btn-main" id="saveItemBtn">품목·시세 저장</button>
   </div>
@@ -941,8 +941,8 @@ function renderPrices(){
         ? (fresh ? '오늘 할인 적용됨 ('+won(it.price)+')' : '할인 미적용')
         : (it.flatRate?'고정 가격 · ':'') + (fresh? '오늘 시세 입력됨' : (it.price? '어제 '+won(it.price)+' · 오늘 미입력' : '시세 미입력'));
       const priceInputHtml = it.isDiscount
-        ? `<input type="number" inputmode="numeric" min="0" placeholder="할인 금액 (원)" value="${it.price? Math.abs(it.price) : ''}" data-priceitem="${it.id}">`
-        : `<input type="number" inputmode="numeric" placeholder="${it.flatRate?'오늘 가격 (원)':'오늘 단가 (원/kg)'}" value="${fresh?it.price:''}" data-priceitem="${it.id}">`;
+        ? `<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="할인 금액 (원)" value="${it.price? Math.abs(it.price) : ''}" data-priceitem="${it.id}">`
+        : `<input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="${it.flatRate?'오늘 가격 (원)':'오늘 단가 (원/kg)'}" value="${fresh?it.price:''}" data-priceitem="${it.id}">`;
       // 연결된 품종 재고 표시
       const linkedSp = it.speciesId ? getSp(it.speciesId) : null;
       const stockBadge = linkedSp
@@ -1081,7 +1081,7 @@ function renderBalanceListHtml(){
           <button class="${balanceMethod[c.id]==='card'?'active':''}" data-bmethod="${c.id}" data-mval="card">카드</button>
         </div>
         <div class="adjust-row">
-          <input type="number" inputmode="numeric" placeholder="입금된 금액" id="pay-${c.id}">
+          <input type="text" inputmode="numeric" pattern="[0-9]*" placeholder="입금된 금액" id="pay-${c.id}">
           <button type="button" class="sign-btn" data-paysign="${c.id}">±</button>
           <button data-partial="${c.id}">입금 반영</button>
         </div>
@@ -1240,7 +1240,7 @@ function buildSalesSeries(txs, start, end){
   const totalDays = Math.max(1, Math.round((endDate-startDate)/86400000)+1);
   let granularity = 'day';
   if(totalDays>180) granularity = 'month';
-  else if(totalDays>31) granularity = 'week';
+  else if(totalDays>62) granularity = 'week'; // 1개월(≤62일)은 일별 유지, 3개월↑부터 주별
 
   const sums = {};
   txs.forEach(t=>{ sums[t.date] = (sums[t.date]||0) + t.total; });
@@ -1300,7 +1300,12 @@ function drawBarChart(canvas, series){
   ctx.lineTo(W-padding.right, H-padding.bottom);
   ctx.stroke();
 
-  const labelEvery = Math.max(1, Math.ceil(n/10));
+  // 데이터 포인트 수에 따라 라벨 간격 결정
+  // 1개월 일별(31일 안팎): 5일 간격 → 약 6~7개 라벨로 깔끔
+  let labelEvery;
+  if(n <= 14)       labelEvery = 1;         // 1~2주: 매일 표시
+  else if(n <= 62)  labelEvery = 5;         // 1개월 일별: 5일 간격
+  else              labelEvery = Math.max(1, Math.ceil(n/10)); // 3개월+: 기존 방식
   series.forEach((s,i)=>{
     const x = padding.left + i*(barW+barGap);
     const barH = max>0 ? (s.value/max) * chartH : 0;
@@ -1573,9 +1578,9 @@ function renderInvStockIn(){
     <div class="if-label">매입처</div>
     <input type="text" id="si-supplier" placeholder="예: ○○수협, 여수 직송">
     <div class="if-label">수량 (${species.length?'품종 선택 후 단위 표시':''})</div>
-    <input type="number" inputmode="decimal" step="0.1" id="si-qty" placeholder="0.0">
+    <input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" id="si-qty" placeholder="0.0">
     <div class="if-label">매입 단가 (원/단위)</div>
-    <input type="number" inputmode="numeric" id="si-cost" placeholder="0">
+    <input type="text" inputmode="numeric" pattern="[0-9]*" id="si-cost" placeholder="0">
     <div class="if-label">입고일</div>
     <input type="date" id="si-date" value="${workingDate}">
     <button class="btn-main" id="si-save">입고 등록</button>
@@ -1603,7 +1608,7 @@ function renderInvMortality(){
     <div class="if-label">품종 (활어만)</div>
     <select id="mo-species"><option value="">품종 선택</option>${species.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select>
     <div class="if-label">폐사 수량</div>
-    <input type="number" inputmode="decimal" step="0.1" id="mo-qty" placeholder="0.0">
+    <input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" id="mo-qty" placeholder="0.0">
     <div class="if-label">원인</div>
     <div class="choice-grid" id="mo-cause-grid">${CAUSES.map(c=>`<button class="choice-btn" data-cause="${c}">${c}</button>`).join('')}</div>
     <div class="if-label">발생 단계</div>
@@ -1650,9 +1655,9 @@ function renderInvConversion(){
           ${freshSpecies.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
         </select>
         <div class="if-label">전환 수량 (최대 ${m.quantity}${sp?sp.unit:''})</div>
-        <input type="number" inputmode="decimal" step="0.1" class="conv-qty" data-moid="${m.id}" placeholder="${m.quantity}" value="${m.quantity}" style="width:100%;font-size:15px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:8px;">
+        <input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" class="conv-qty" data-moid="${m.id}" placeholder="${m.quantity}" value="${m.quantity}" style="width:100%;font-size:15px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:8px;">
         <div class="if-label">예상 판매 단가 (원/${sp?sp.unit:'단위'}, 마진손실 계산에 사용)</div>
-        <input type="number" inputmode="numeric" class="conv-sold" data-moid="${m.id}" placeholder="0" style="width:100%;font-size:15px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:10px;">
+        <input type="text" inputmode="numeric" pattern="[0-9]*" class="conv-sold" data-moid="${m.id}" placeholder="0" style="width:100%;font-size:15px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:10px;">
         <button class="btn-main" data-doconv="${m.id}">선어로 전환 완료</button>
       </div>`;
     });
