@@ -1538,7 +1538,7 @@ function renderInvDashboard(){
   <div class="sub-note" style="text-align:center;margin-top:-6px;">입고 − 판매 − 폐사 ± 전환 = 현재 재고</div>
   <div class="section-title">품종별 재고 현황</div>
   <div class="metric-grid">`;
-  species.forEach(sp=>{
+  species.forEach((sp, idx)=>{
     const inQty  = (state.stockIn||[]).filter(r=>r.speciesId===sp.id).reduce((s,r)=>s+r.quantity,0);
     const sold   = totalSoldQty(sp.id);
     const dead   = (state.mortality||[]).filter(r=>r.speciesId===sp.id&&r.status!=='전환대기').reduce((s,r)=>s+r.quantity,0);
@@ -1546,13 +1546,21 @@ function renderInvDashboard(){
     const rate   = mortalityRate(sp.id);
     const loss   = conversionMarginLoss(sp.id);
     const isDanger = rate > 10 || stock === 0;
+    const isFirst = idx === 0;
+    const isLast  = idx === species.length - 1;
     html += `
-    <div class="metric-card ${isDanger?'danger':''}" style="cursor:pointer;" data-invspecies="${sp.id}">
-      <div class="mc-label">${sp.category} · ${sp.unit}</div>
-      <div class="mc-name">${sp.name}</div>
-      <div class="mc-val ${stock===0?'red':''}">${stock.toLocaleString()}<small style="font-size:13px;font-weight:500;">${sp.unit}</small></div>
-      <div class="mc-sub">입고 ${inQty} · 판매 ${sold} · 폐사 ${dead}</div>
-      <div class="mc-sub">폐사율 ${rate.toFixed(1)}%${loss>0?` · 손실 ${won(loss)}`:''}</div>
+    <div class="metric-card ${isDanger?'danger':''}" style="position:relative;">
+      <div style="position:absolute;top:6px;right:6px;display:flex;flex-direction:column;gap:3px;z-index:1;">
+        <button class="order-btn" style="width:32px;height:32px;font-size:11px;" data-spmoveup="${sp.id}" ${isFirst?'disabled':''}>▲</button>
+        <button class="order-btn" style="width:32px;height:32px;font-size:11px;" data-spmovedown="${sp.id}" ${isLast?'disabled':''}>▼</button>
+      </div>
+      <div style="cursor:pointer;" data-invspecies="${sp.id}">
+        <div class="mc-label">${sp.category} · ${sp.unit}</div>
+        <div class="mc-name">${sp.name}</div>
+        <div class="mc-val ${stock===0?'red':''}">${stock.toLocaleString()}<small style="font-size:13px;font-weight:500;">${sp.unit}</small></div>
+        <div class="mc-sub">입고 ${inQty} · 판매 ${sold} · 폐사 ${dead}</div>
+        <div class="mc-sub">폐사율 ${rate.toFixed(1)}%${loss>0?` · 손실 ${won(loss)}`:''}</div>
+      </div>
     </div>`;
   });
   html += `</div>`;
@@ -1578,23 +1586,56 @@ function renderInvStockIn(){
     <div class="if-label">매입처</div>
     <input type="text" id="si-supplier" placeholder="예: ○○수협, 여수 직송">
     <div class="if-label">수량 (${species.length?'품종 선택 후 단위 표시':''})</div>
-    <input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" id="si-qty" placeholder="0.0">
+    <input type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" id="si-qty" placeholder="0.0">
     <div class="if-label">매입 단가 (원/단위)</div>
     <input type="text" inputmode="numeric" pattern="[0-9]*" id="si-cost" placeholder="0">
     <div class="if-label">입고일</div>
     <input type="date" id="si-date" value="${workingDate}">
     <button class="btn-main" id="si-save">입고 등록</button>
   </div>
-  <div class="section-title">입고 내역</div>`;
+  <div class="section-title">입고 내역 <span class="count">${(state.stockIn||[]).length}</span></div>`;
   const list = (state.stockIn||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
   if(!list.length) html += `<div class="empty">아직 입고 기록이 없습니다.</div>`;
   list.forEach(r=>{
     const sp = getSp(r.speciesId);
-    html += `<div class="inv-row">
-      <div class="ir-top"><span class="ir-name">${sp?sp.name:'?'}</span><span class="ir-val">${r.quantity}${sp?sp.unit:''}</span></div>
+    html += `
+    <div class="inv-row" style="cursor:pointer;" data-editstockin="${r.id}">
+      <div class="ir-top">
+        <span class="ir-name">${sp?sp.name:'?'}</span>
+        <span class="ir-val">${r.quantity}${sp?sp.unit:''}</span>
+      </div>
       <div class="ir-meta">${dateLabel(r.date)} · ${r.supplier||'매입처 미기재'} · 단가 ${won(r.unitCost)}/${sp?sp.unit:'단위'}</div>
+      <div style="text-align:right;margin-top:6px;">
+        <button class="iname-save-btn" data-editstockinbtn="${r.id}" style="background:var(--paper-deep);color:var(--navy);border:1.5px solid var(--rule);">수정</button>
+      </div>
     </div>`;
   });
+
+  // 수정 모달 (hidden)
+  html += `
+  <div id="stockInEditModal" style="display:none;position:fixed;inset:0;background:rgba(20,20,18,0.55);z-index:200;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#fff;border-radius:16px;padding:24px;width:100%;max-width:460px;box-shadow:0 16px 48px rgba(0,0,0,0.28);">
+      <div class="if-title" style="margin-bottom:14px;">입고 내역 수정</div>
+      <div class="if-label">품종</div>
+      <select id="sei-species" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+        ${species.map(s=>`<option value="${s.id}">${s.name} (${s.category})</option>`).join('')}
+      </select>
+      <div class="if-label">매입처</div>
+      <input type="text" id="sei-supplier" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+      <div class="if-label">수량</div>
+      <input type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" id="sei-qty" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+      <div class="if-label">매입 단가 (원/단위)</div>
+      <input type="text" inputmode="numeric" pattern="[0-9]*" id="sei-cost" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+      <div class="if-label">입고일</div>
+      <input type="date" id="sei-date" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+      <div id="sei-warn" style="color:var(--stamp);font-size:13px;font-weight:700;margin-bottom:8px;display:none;"></div>
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <button id="sei-cancel" style="flex:1;padding:14px;border-radius:10px;border:1.5px solid var(--rule);background:var(--paper-deep);color:var(--navy);font-weight:700;font-size:16px;">취소</button>
+        <button id="sei-save" style="flex:1;padding:14px;border-radius:10px;border:none;background:var(--navy);color:#fff;font-weight:900;font-size:16px;">저장</button>
+      </div>
+    </div>
+  </div>`;
+
   return html;
 }
 
@@ -2632,7 +2673,113 @@ function attachHandlers(){
       };
     });
 
-    // ── 입고 ──────────────────────────────────────────────────
+    // ── 대시보드: 품종 순서 변경 ▲▼ ─────────────────────────────
+    document.querySelectorAll('[data-spmoveup]').forEach(b=>{
+      b.onclick = async (e)=>{
+        e.stopPropagation();
+        const idx = (state.species||[]).findIndex(s=>s.id===b.dataset.spmoveup);
+        if(idx>0){
+          [state.species[idx-1],state.species[idx]]=[state.species[idx],state.species[idx-1]];
+          await saveState(); render();
+        }
+      };
+    });
+    document.querySelectorAll('[data-spmovedown]').forEach(b=>{
+      b.onclick = async (e)=>{
+        e.stopPropagation();
+        const idx = (state.species||[]).findIndex(s=>s.id===b.dataset.spmovedown);
+        if(idx>-1 && idx<(state.species||[]).length-1){
+          [state.species[idx+1],state.species[idx]]=[state.species[idx],state.species[idx+1]];
+          await saveState(); render();
+        }
+      };
+    });
+
+    // ── 입고 수정 모달 ────────────────────────────────────────────
+    let editingStockInId = null;
+
+    function openStockInEdit(id){
+      const r = (state.stockIn||[]).find(x=>x.id===id);
+      if(!r) return;
+      editingStockInId = id;
+      const modal = document.getElementById('stockInEditModal');
+      if(!modal) return;
+      document.getElementById('sei-species').value = r.speciesId||'';
+      document.getElementById('sei-supplier').value = r.supplier||'';
+      document.getElementById('sei-qty').value = r.quantity;
+      document.getElementById('sei-cost').value = r.unitCost||0;
+      document.getElementById('sei-date').value = r.date;
+      document.getElementById('sei-warn').style.display = 'none';
+      modal.style.display = 'flex';
+    }
+
+    // 수정 버튼 클릭
+    document.querySelectorAll('[data-editstockinbtn]').forEach(b=>{
+      b.onclick = (e)=>{ e.stopPropagation(); openStockInEdit(b.dataset.editstockinbtn); };
+    });
+    // 행 클릭으로도 수정 열기
+    document.querySelectorAll('[data-editstockin]').forEach(row=>{
+      row.onclick = ()=>{ openStockInEdit(row.dataset.editstockin); };
+    });
+
+    // 취소
+    document.getElementById('sei-cancel')?.addEventListener('click', ()=>{
+      editingStockInId = null;
+      document.getElementById('stockInEditModal').style.display = 'none';
+    });
+
+    // 모달 바깥 클릭 = 취소
+    document.getElementById('stockInEditModal')?.addEventListener('click', (e)=>{
+      if(e.target === document.getElementById('stockInEditModal')){
+        editingStockInId = null;
+        document.getElementById('stockInEditModal').style.display = 'none';
+      }
+    });
+
+    // 저장
+    document.getElementById('sei-save')?.addEventListener('click', async ()=>{
+      if(!editingStockInId) return;
+      const r = (state.stockIn||[]).find(x=>x.id===editingStockInId);
+      if(!r) return;
+
+      const newSpId    = document.getElementById('sei-species').value;
+      const newSupplier= document.getElementById('sei-supplier').value.trim();
+      const newQty     = Number(document.getElementById('sei-qty').value||0);
+      const newCost    = Number(document.getElementById('sei-cost').value||0);
+      const newDate    = document.getElementById('sei-date').value;
+      const warnEl     = document.getElementById('sei-warn');
+
+      if(!newSpId){ warnEl.textContent='품종을 선택해주세요.'; warnEl.style.display='block'; return; }
+      if(newQty<=0){ warnEl.textContent='수량은 0보다 커야 합니다.'; warnEl.style.display='block'; return; }
+
+      // ── 정합성 검증 ──────────────────────────────────────────
+      // 현재 재고에서 이 입고 건만 제외한 재고 = 변경 후 가상 재고
+      const oldQty = r.quantity;
+      const spId = r.speciesId;
+      const stockWithout = currentStock(spId) - oldQty + (newSpId===spId ? newQty : 0);
+
+      // 이미 판매된 수량이 재고보다 많아지면 경고
+      if(newSpId===spId && stockWithout < 0){
+        const soldQty = totalSoldQty(spId);
+        const inQtyOther = (state.stockIn||[]).filter(x=>x.id!==editingStockInId&&x.speciesId===spId).reduce((s,x)=>s+x.quantity,0);
+        warnEl.textContent = `수량을 ${newQty}으로 줄이면 재고(${Math.max(0,inQtyOther+newQty)}단위)가 이미 판매·처리된 수량보다 적어집니다. 더 큰 값을 입력해주세요.`;
+        warnEl.style.display = 'block';
+        return;
+      }
+
+      // 적용
+      r.speciesId  = newSpId;
+      r.supplier   = newSupplier;
+      r.quantity   = newQty;
+      r.unitCost   = newCost;
+      r.date       = newDate;
+
+      editingStockInId = null;
+      document.getElementById('stockInEditModal').style.display = 'none';
+      await saveState(); render();
+    });
+
+    // ── 입고 등록 ──────────────────────────────────────────────
     document.getElementById('si-save')?.addEventListener('click', async ()=>{
       const spId = document.getElementById('si-species')?.value;
       const qty = Number(document.getElementById('si-qty')?.value||0);
