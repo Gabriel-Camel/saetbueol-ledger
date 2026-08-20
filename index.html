@@ -1642,12 +1642,15 @@ function renderInvStockIn(){
 function renderInvMortality(){
   const CAUSES=['수온','질병','산소부족','이동손상','기타'];
   const STAGES=['입고직후','보관중','판매직전'];
-  const species = (state.species||[]).filter(s=>s.category==='활어');
+  // 활어 중 현재 재고가 있는 품종만 폐사 대상으로 표시
+  const allLive = (state.species||[]).filter(s=>s.category==='활어');
+  const species = allLive.filter(s=>currentStock(s.id)>0);
+  const hasHidden = allLive.length > species.length;
   let html = `
   <div class="inv-form" id="invMortalityForm">
     <div class="if-title">폐사 등록</div>
-    <div class="if-label">품종 (활어만)</div>
-    <select id="mo-species"><option value="">품종 선택</option>${species.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}</select>
+    <div class="if-label">품종 (재고 있는 활어만)${hasHidden?` <span style="font-weight:400;color:#9a9180;font-size:12px;">· 재고 0 품종 ${allLive.length-species.length}개 제외됨</span>`:''}</div>
+    <select id="mo-species"><option value="">품종 선택</option>${species.map(s=>`<option value="${s.id}">${s.name} (재고 ${currentStock(s.id)}${s.unit})</option>`).join('')}</select>
     <div class="if-label">폐사 수량</div>
     <input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" id="mo-qty" placeholder="0.0">
     <div class="if-label">원인</div>
