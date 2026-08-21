@@ -504,8 +504,13 @@ let statementCustomStart = null;
 let statementCustomEnd = null;
 let statementView = 'client'; // 'client' | 'summary' | 'chart'
 let chartClientId = null; // null = 전체 거래처 기준
-let invSubTab = 'dashboard'; // 'dashboard'|'stockin'|'mortality'|'conversion'|'history'|'species'
+let invSubTab = 'dashboard'; // 'dashboard'|'stockin'|'mortality'|'conversion'|'history'|'profit'|'species'
 let invHistorySpId = ''; // 변동이력 필터용 품종 ID
+// ── 수익분석 탭 상태 ─────────────────────────────────────────────
+let profitPeriod    = 'thismonth';  // 기간 필터
+let profitCustStart = '';
+let profitCustEnd   = '';
+let profitSortBy    = 'profit';     // 'profit' | 'rate'
 let invSpeciesSearch = '';
 let editingTxId = null;
 let balanceMethod = {}; // clientId -> 'cash' | 'card' (미수금 탭에서 입금/정산 시 선택)
@@ -1504,7 +1509,7 @@ function renderInventory(){
   const subTabs = [
     {k:'dashboard',l:'대시보드'},{k:'stockin',l:'입고'},
     {k:'mortality',l:'폐사'},{k:'conversion',l:'전환'},
-    {k:'history',l:'변동이력'},{k:'species',l:'품종관리'}
+    {k:'history',l:'변동이력'},{k:'profit',l:'수익분석'},{k:'species',l:'품종관리'}
   ];
   let html = `<div class="inv-subtabs">`;
   subTabs.forEach(t=>{ html+=`<button class="inv-sub-btn ${invSubTab===t.k?'active':''}" data-invtab="${t.k}">${t.l}</button>`; });
@@ -1515,6 +1520,7 @@ function renderInventory(){
   else if(invSubTab==='mortality') html += renderInvMortality();
   else if(invSubTab==='conversion') html += renderInvConversion();
   else if(invSubTab==='history') html += renderInvHistory();
+  else if(invSubTab==='profit') html += renderInvProfit();
   else html += renderInvSpecies();
   return html;
 }
@@ -1774,6 +1780,192 @@ function renderInvHistory(){
       </div>`;
     });
   }
+  return html;
+}
+
+// ══════════════════════════════════════════════════════════════════
+//  수익 분석 — 공통 계산 함수
+//  재고 흐름(입고→판매/폐사/전환)이 있는 품종만 대상
+// ══════════════════════════════════════════════════════════════════
+
+/** 거래 ID → tx 레코드 빠른 조회용 맵 빌드 */
+function buildTxMap(){
+  const map = {};
+  Object.values(state.tx||{}).forEach(list=>{
+    list.forEach(t=>{ map[t.id]=t; });
+  });
+  return map;
+}
+
+/**
+ * 단일 품종의 기간별 수익 지표 계산
+ * @param {string} spId  - species.id
+ * @param {string} [start] - 'YYYY-MM-DD' 또는 생략(전체)
+ * @param {string} [end]   - 'YYYY-MM-DD' 또는 생략(전체)
+ * @param {Object} [txMap] - buildTxMap() 결과 (성능 최적화)
+ * @returns {{ revenue, cogs, mortLoss, convLoss, profit, profitRate,
+ *             soldQty, avgCost, sp }}
+ */
+function calcSpeciesProfit(spId, start, end, txMap){
+  txMap = txMap || buildTxMap();
+
+  // ── 평균 매입 단가 (전체 이력 기반 — 실제 원가 반영) ──────────
+  const allIn = (state.stockIn||[]).filter(r=>r.speciesId===spId);
+  const totalInQty  = allIn.reduce((s,r)=>s+r.quantity,0);
+  const totalInCost = allIn.reduce((s,r)=>s+(r.unitCost||0)*r.quantity,0);
+  const avgCost = totalInQty>0 ? totalInCost/totalInQty : 0;
+
+  const inRange = (date)=>{
+    if(!date) return true;
+    if(start && date<start) return false;
+    if(end   && date>end)   return false;
+    return true;
+  };
+
+  // ── 매출액: inventorySales → tx.total 참조 ─────────────────────
+  const sales = (state.inventorySales||[])
+    .filter(s=>s.speciesId===spId && inRange(s.date));
+  let revenue  = 0;
+  let soldQty  = 0;
+  sales.forEach(s=>{
+    soldQty += s.quantity;
+    const tx = txMap[s.txId];
+    if(tx && !tx.flat && !tx.discount) revenue += tx.total||0;
+  });
+
+  // ── 매입원가 (판매 수량 × 평균 단가) ──────────────────────────
+  const cogs = soldQty * avgCost;
+
+  // ── 폐사 손실 (기간 내 폐사, 전환대기 제외) ────────────────────
+  const mortLoss = (state.mortality||[])
+    .filter(m=>m.speciesId===spId && m.status!=='전환대기' && inRange(m.occurredAt))
+    .reduce((s,m)=>s+m.quantity*avgCost, 0);
+
+  // ── 전환 손실 (활어→선어 마진 손실분) ─────────────────────────
+  const convLoss = (state.conversions||[])
+    .filter(c=>c.fromSpeciesId===spId && inRange(c.convertedAt))
+    .reduce((s,c)=>{
+      // soldPrice가 있으면 실제 판매가 기준, 없으면 carriedCost vs avgCost
+      const lossPerUnit = c.soldPrice>0
+        ? c.carriedCost - c.soldPrice
+        : avgCost - (c.carriedCost||avgCost);
+      return s + Math.max(0, lossPerUnit) * c.quantity;
+    }, 0);
+
+  const profit     = revenue - cogs - mortLoss - convLoss;
+  const profitRate = revenue>0 ? profit/revenue*100 : 0;
+
+  return { spId, avgCost, soldQty, revenue, cogs, mortLoss, convLoss, profit, profitRate };
+}
+
+/** 기간 선택 → [start, end] YYYY-MM-DD */
+function profitPeriodToRange(){
+  const today = realTodayKey();
+  if(profitPeriod==='custom') return [profitCustStart||today, profitCustEnd||today];
+  const d = new Date();
+  if(profitPeriod==='thismonth'){
+    const s = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-01';
+    return [s, today];
+  }
+  if(profitPeriod==='lastmonth'){
+    const lm = new Date(d.getFullYear(), d.getMonth()-1, 1);
+    const le = new Date(d.getFullYear(), d.getMonth(), 0);
+    const fmt = x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+    return [fmt(lm), fmt(le)];
+  }
+  if(profitPeriod==='1m') d.setMonth(d.getMonth()-1);
+  else if(profitPeriod==='3m') d.setMonth(d.getMonth()-3);
+  else if(profitPeriod==='all') return ['', ''];
+  const s = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  return [s, today];
+}
+
+function renderInvProfit(){
+  const periods = [
+    {k:'thismonth',l:'이번 달'},{k:'lastmonth',l:'지난달'},
+    {k:'1m',l:'최근 1개월'},{k:'3m',l:'최근 3개월'},
+    {k:'all',l:'전체'},{k:'custom',l:'직접 설정'},
+  ];
+  const [ps, pe] = profitPeriodToRange();
+
+  let html = `<div class="period-grid" style="grid-template-columns:repeat(3,1fr);margin-bottom:10px;">`;
+  periods.forEach(p=>{
+    html += `<button class="period-btn ${profitPeriod===p.k?'active':''}" data-profitperiod="${p.k}">${p.l}</button>`;
+  });
+  html += `</div>`;
+
+  if(profitPeriod==='custom'){
+    html += `<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+      <input type="date" id="profitCustStart" value="${profitCustStart}" style="flex:1;background:var(--paper-deep);border:1.5px solid var(--rule);border-radius:8px;padding:8px 10px;font-size:14px;">
+      <span>~</span>
+      <input type="date" id="profitCustEnd" value="${profitCustEnd}" style="flex:1;background:var(--paper-deep);border:1.5px solid var(--rule);border-radius:8px;padding:8px 10px;font-size:14px;">
+    </div>`;
+  }
+
+  // 정렬 버튼
+  html += `<div style="display:flex;gap:8px;margin-bottom:14px;">
+    <button class="period-btn ${profitSortBy==='profit'?'active':''}" data-profitsort="profit" style="flex:1;">수익금 순</button>
+    <button class="period-btn ${profitSortBy==='rate'?'active':''}" data-profitsort="rate" style="flex:1;">수익률 순</button>
+  </div>`;
+
+  // 재고 흐름이 있는 품종만 계산 대상 (species 마스터 등록 품종 한정)
+  const species = state.species||[];
+  if(!species.length){
+    return html + `<div class="empty">품종관리 탭에서 품종을 먼저 등록해주세요.</div>`;
+  }
+
+  const txMap = buildTxMap();
+  const results = species
+    .map(sp=>({ sp, ...calcSpeciesProfit(sp.id, ps, pe, txMap) }))
+    .filter(r=>r.revenue>0 || r.mortLoss>0 || r.convLoss>0); // 활동 없는 품종 제외
+
+  if(!results.length){
+    return html + `<div class="empty">선택한 기간에 수익 분석할 데이터가 없습니다.<br>(판매 연동된 품종의 거래 내역이 필요합니다)</div>`;
+  }
+
+  // 정렬
+  results.sort((a,b)=>profitSortBy==='rate' ? b.profitRate-a.profitRate : b.profit-a.profit);
+
+  // 전체 합산
+  const totalRev  = results.reduce((s,r)=>s+r.revenue,0);
+  const totalCogs = results.reduce((s,r)=>s+r.cogs,0);
+  const totalMort = results.reduce((s,r)=>s+r.mortLoss,0);
+  const totalConv = results.reduce((s,r)=>s+r.convLoss,0);
+  const totalProfit= results.reduce((s,r)=>s+r.profit,0);
+  const totalRate  = totalRev>0 ? totalProfit/totalRev*100 : 0;
+
+  const pcolor = (v)=> v>=0 ? 'var(--green)' : 'var(--stamp)';
+
+  // 요약 박스
+  html += `
+  <div class="dash-summary" style="margin-bottom:14px;">
+    <div class="ds-row"><span>매출액 합계</span><span>${won(totalRev)}</span></div>
+    <div class="ds-row"><span>매입원가 합계</span><span>−${won(totalCogs)}</span></div>
+    <div class="ds-row"><span>폐사 손실 합계</span><span>−${won(totalMort)}</span></div>
+    <div class="ds-row"><span>전환 손실 합계</span><span>−${won(totalConv)}</span></div>
+    <div class="ds-row big" style="color:${pcolor(totalProfit)};"><span>순수익</span><span>${totalProfit>=0?'+':''}${won(totalProfit)} (${totalRate.toFixed(1)}%)</span></div>
+  </div>`;
+
+  // 품종별 카드
+  results.forEach(r=>{
+    const sp = getSp(r.spId);
+    html += `
+    <div class="inv-row" style="margin-bottom:10px;">
+      <div class="ir-top">
+        <span class="ir-name">${sp?sp.name:'?'} <span class="ir-tag">${sp?sp.category:''}</span></span>
+        <span class="ir-val" style="color:${pcolor(r.profit)};">${r.profit>=0?'+':''}${won(r.profit)}</span>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;margin-top:8px;font-size:13px;">
+        <span style="color:#7a7260;">매출액</span><span style="text-align:right;font-weight:700;">${won(r.revenue)}</span>
+        <span style="color:#7a7260;">매입원가</span><span style="text-align:right;">−${won(r.cogs)}</span>
+        ${r.mortLoss>0?`<span style="color:#7a7260;">폐사 손실</span><span style="text-align:right;color:var(--stamp);">−${won(r.mortLoss)}</span>`:''}
+        ${r.convLoss>0?`<span style="color:#7a7260;">전환 손실</span><span style="text-align:right;color:var(--stamp);">−${won(r.convLoss)}</span>`:''}
+        <span style="color:#7a7260;">수익률</span><span style="text-align:right;font-weight:700;color:${pcolor(r.profitRate)};">${r.profitRate.toFixed(1)}%</span>
+        <span style="color:#7a7260;">평균 매입가</span><span style="text-align:right;">${won(r.avgCost)}/${sp?sp.unit:'단위'}</span>
+      </div>
+    </div>`;
+  });
+
   return html;
 }
 
@@ -2590,6 +2782,26 @@ function attachHandlers(){
     // 서브탭 전환
     document.querySelectorAll('[data-invtab]').forEach(b=>{
       b.onclick = ()=>{ invSubTab = b.dataset.invtab; render(); };
+    });
+
+    // ── 수익분석 탭 핸들러 ─────────────────────────────────────
+    document.querySelectorAll('[data-profitperiod]').forEach(b=>{
+      b.onclick = ()=>{
+        profitPeriod = b.dataset.profitperiod;
+        if(profitPeriod==='custom' && !profitCustStart){
+          const [s,e]=profitPeriodToRange(); profitCustStart=s; profitCustEnd=e;
+        }
+        render();
+      };
+    });
+    document.getElementById('profitCustStart')?.addEventListener('change', e=>{
+      profitCustStart=e.target.value; render();
+    });
+    document.getElementById('profitCustEnd')?.addEventListener('change', e=>{
+      profitCustEnd=e.target.value; render();
+    });
+    document.querySelectorAll('[data-profitsort]').forEach(b=>{
+      b.onclick = ()=>{ profitSortBy=b.dataset.profitsort; render(); };
     });
     // 대시보드 품종 카드 클릭 → 변동이력으로 이동
     document.querySelectorAll('[data-invspecies]').forEach(b=>{
