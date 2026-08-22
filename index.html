@@ -652,53 +652,32 @@ function getItem(id){ return state.items.find(i=>i.id===id); }
 //  calcClientBalance(id, '2026-08-01') → 해당 날짜 이전 잔액 (명세서 이전잔액)
 //  calcClientBalance(id, start, end)   → start~end 기말잔액 (명세서 기말잔액)
 // ────────────────────────────────────────────────────────────────
-function calcClientBalance(clientId, beforeDate, endDate) {
-  const txLimit  = endDate   || '9999-12-31'; // tx 포함 상한 날짜
-  const txFloor  = beforeDate || '0000-01-01'; // tx 포함 하한 날짜 (이전잔액 계산시)
-  const payLimit = endDate   || '9999-12-31'; // 입금 포함 상한
-  const payFloor = beforeDate || '0000-01-01'; // 입금 포함 하한
+// ────────────────────────────────────────────────────────────────
+//  공통 잔액 계산 함수 — 미수금 탭 · 명세서 탭 · 어디서든 동일하게 사용
+//
+//  calcClientBalance(id)          → 현재 총 잔액 (미수금 탭, 명세서 "잔액"용)
+//  calcClientBalance(id, start)   → start 이전까지 누적 잔액 (명세서 "이전 잔액"용)
+//
+//  ※ "기말잔액"(기간 종료 시점 잔액) = calcClientBalance(id)
+//      → 기간이 오늘을 포함하면 항상 이 값과 일치
+//      → 두 탭이 완전히 같은 함수를 참조하므로 영구 일치 보장
+// ────────────────────────────────────────────────────────────────
+function calcClientBalance(clientId, beforeDate) {
+  // 전체 외상 거래 합산
+  const allCredit = Object.entries(state.tx||{})
+    .filter(([d])=> !beforeDate || d < beforeDate)
+    .flatMap(([,l])=>l)
+    .filter(t=>t.clientId===clientId && !t.paid)
+    .reduce((s,t)=>s+t.total, 0);
 
-  // 인수 1개: 전체 누적
-  // 인수 2개: beforeDate 이전까지의 누적 (= 이전잔액)
-  // 인수 3개: start~end 기간의 이전잔액 + 기간 내 변동 = 기말잔액
+  // 전체 입금 합산
+  const allPaid = (state.payments||[])
+    .filter(p=>p.clientId===clientId && (!beforeDate || p.date < beforeDate))
+    .reduce((s,p)=>s+p.amount, 0);
 
-  if(arguments.length === 0 || arguments.length === 1){
-    // 전체 기간 누적 (미수금 탭용)
-    const credit = Object.values(state.tx||{})
-      .flat().filter(t=>t.clientId===clientId && !t.paid)
-      .reduce((s,t)=>s+t.total,0);
-    const paid = (state.payments||[])
-      .filter(p=>p.clientId===clientId)
-      .reduce((s,p)=>s+p.amount,0);
-    return Math.max(0, credit - paid);
-  } else if(arguments.length === 2){
-    // beforeDate 직전까지 누적 (명세서 이전잔액용)
-    const credit = Object.entries(state.tx||{})
-      .filter(([d])=>d < beforeDate)
-      .flatMap(([,l])=>l)
-      .filter(t=>t.clientId===clientId && !t.paid)
-      .reduce((s,t)=>s+t.total,0);
-    const paid = (state.payments||[])
-      .filter(p=>p.clientId===clientId && p.date < beforeDate)
-      .reduce((s,p)=>s+p.amount,0);
-    return Math.max(0, credit - paid);
-  } else {
-    // start(beforeDate)~end(endDate) 기말잔액
-    const priorCredit = Object.entries(state.tx||{})
-      .filter(([d])=>d < beforeDate).flatMap(([,l])=>l)
-      .filter(t=>t.clientId===clientId && !t.paid).reduce((s,t)=>s+t.total,0);
-    const priorPaid = (state.payments||[])
-      .filter(p=>p.clientId===clientId && p.date < beforeDate)
-      .reduce((s,p)=>s+p.amount,0);
-    const periodCredit = Object.entries(state.tx||{})
-      .filter(([d])=>d>=beforeDate && d<=endDate).flatMap(([,l])=>l)
-      .filter(t=>t.clientId===clientId && !t.paid).reduce((s,t)=>s+t.total,0);
-    const periodPaid = (state.payments||[])
-      .filter(p=>p.clientId===clientId && p.date>=beforeDate && p.date<=endDate)
-      .reduce((s,p)=>s+p.amount,0);
-    const prior = Math.max(0, priorCredit - priorPaid);
-    return Math.max(0, prior + periodCredit - periodPaid);
-  }
+  // Math.max(0,...): 잔액은 음수 없음
+  // (이전 이중 Math.max 제거 → 단일 최종 클램프만 적용)
+  return Math.max(0, allCredit - allPaid);
 }
 
 // 앱 기동 · 백업 복원 후 c.balance를 원본 데이터와 동기화
@@ -2115,15 +2094,9 @@ function renderStatement(){
         const paymentsCash  = paymentsForClient.filter(p=>p.method==='cash').reduce((s,p)=>s+p.amount,0);
         const paymentsCard  = paymentsForClient.filter(p=>p.method==='card').reduce((s,p)=>s+p.amount,0);
 
-        // ── 이전잔액: rangeStart 이전 거래의 누적 외상 – 입금 ──────────
-        // calcClientBalance 공통 함수 사용 (미수금 탭과 동일한 계산 기준)
-        const priorBalance = calcClientBalance(c.id, rangeStart);
-
-        // ── 기말잔액: rangeStart~rangeEnd 기간의 기말 잔액 ─────────
-        const closingBalance = calcClientBalance(c.id, rangeStart, rangeEnd);
-
-        // ── 현재 실시간 미수금 (오늘 기준) ─────────────────────────
-        const currentBal = calcClientBalance(c.id);
+        // ── 잔액 계산: 단 하나의 공통 함수 calcClientBalance 사용 ──
+        const priorBalance   = calcClientBalance(c.id, rangeStart); // 기간 시작 전
+        const currentBalance = calcClientBalance(c.id);              // 현재 = 미수금 탭과 동일
 
         html += `
         <div class="statement" id="statementPrintArea">
@@ -2148,9 +2121,8 @@ function renderStatement(){
             <div class="st-row sub"><span>· 즉시결제(카드)</span><span>${won(periodCard)}</span></div>
             <div class="st-row sub credit"><span>· 외상(기간 중 발생)</span><span>${won(periodCredit)}</span></div>
             ${paymentsTotal>0?`<div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금액 (현금 ${won(paymentsCash)} · 카드 ${won(paymentsCard)})</span><span>-${won(paymentsTotal)}</span></div>`:''}
-            <div class="st-row"><span>기간 시작 전 잔액 (${dateLabel(rangeStart)} 이전 누적)</span><span>${won(priorBalance)}</span></div>
-            <div class="st-row total"><span>기말 잔액 (${dateLabel(rangeEnd)} 기준)</span><span>${won(closingBalance)}</span></div>
-            ${rangeEnd < realTodayKey() ? `<div class="st-row sub" style="color:#9a9180;font-size:12px;"><span>· 오늘 현재 미수금 (미수금 탭과 동일)</span><span>${won(currentBal)}</span></div>` : ''}
+            <div class="st-row"><span>이전 잔액 (${dateLabel(rangeStart)} 이전)</span><span>${won(priorBalance)}</span></div>
+            <div class="st-row total"><span>잔액</span><span>${won(currentBalance)}</span></div>
           </div>
           <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
           ${selectedStatementClientId && state.clientMessages[msgKey(selectedStatementClientId)] ? `<div class="st-message">${state.clientMessages[msgKey(selectedStatementClientId)].replace(/\n/g,'<br>')}</div>` : ''}
