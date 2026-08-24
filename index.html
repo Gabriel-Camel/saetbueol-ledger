@@ -1627,6 +1627,7 @@ function renderInvStockIn(){
 function renderInvMortality(){
   const CAUSES=['수온','질병','산소부족','이동손상','기타'];
   const STAGES=['입고직후','보관중','판매직전'];
+  const STATUSES=['전환대기','폐기'];
   // 활어 중 현재 재고가 있는 품종만 폐사 대상으로 표시
   const allLive = (state.species||[]).filter(s=>s.category==='활어');
   const species = allLive.filter(s=>currentStock(s.id)>0);
@@ -1637,7 +1638,7 @@ function renderInvMortality(){
     <div class="if-label">품종 (재고 있는 활어만)${hasHidden?` <span style="font-weight:400;color:#9a9180;font-size:12px;">· 재고 0 품종 ${allLive.length-species.length}개 제외됨</span>`:''}</div>
     <select id="mo-species"><option value="">품종 선택</option>${species.map(s=>`<option value="${s.id}">${s.name} (재고 ${currentStock(s.id)}${s.unit})</option>`).join('')}</select>
     <div class="if-label">폐사 수량</div>
-    <input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" id="mo-qty" placeholder="0.0">
+    <input type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" id="mo-qty" placeholder="0.0">
     <div class="if-label">원인</div>
     <div class="choice-grid" id="mo-cause-grid">${CAUSES.map(c=>`<button class="choice-btn" data-cause="${c}">${c}</button>`).join('')}</div>
     <div class="if-label">발생 단계</div>
@@ -1646,21 +1647,59 @@ function renderInvMortality(){
     <input type="date" id="mo-date" value="${workingDate}">
     <div class="if-label">처리 방향</div>
     <div class="choice-grid" id="mo-status-grid">
-      ${['전환대기','폐기'].map(s=>`<button class="choice-btn" data-mostat="${s}">${s}</button>`).join('')}
+      ${STATUSES.map(s=>`<button class="choice-btn" data-mostat="${s}">${s}</button>`).join('')}
     </div>
     <button class="btn-main" id="mo-save">폐사 등록</button>
   </div>
-  <div class="section-title">폐사 이력</div>`;
+  <div class="section-title">폐사 이력 <span class="count">${(state.mortality||[]).length}</span></div>`;
   const list = (state.mortality||[]).slice().sort((a,b)=>b.occurredAt.localeCompare(a.occurredAt));
   if(!list.length) html += `<div class="empty">폐사 기록이 없습니다.</div>`;
   list.forEach(m=>{
     const sp = getSp(m.speciesId);
     const tagClass = m.status==='전환대기'?'red':m.status==='전환완료'?'green':'';
-    html += `<div class="inv-row">
-      <div class="ir-top"><span class="ir-name">${sp?sp.name:'?'} 폐사 <span class="ir-tag ${tagClass}">${m.status}</span></span><span class="ir-val red">${m.quantity}${sp?sp.unit:''}</span></div>
+    const canEdit  = m.status !== '전환완료'; // 전환완료는 수정 잠금
+    html += `
+    <div class="inv-row" style="cursor:${canEdit?'pointer':'default'};" ${canEdit?`data-editmortality="${m.id}"`:''}>
+      <div class="ir-top">
+        <span class="ir-name">${sp?sp.name:'?'} 폐사 <span class="ir-tag ${tagClass}">${m.status}</span></span>
+        <span class="ir-val red">${m.quantity}${sp?sp.unit:''}</span>
+      </div>
       <div class="ir-meta">${dateLabel(m.occurredAt)} · ${m.cause} · ${m.stage}</div>
+      ${canEdit ? `<div style="display:flex;gap:8px;margin-top:8px;">
+        <button class="iname-save-btn" data-editmortalitybtn="${m.id}" style="background:var(--paper-deep);color:var(--navy);border:1.5px solid var(--rule);">수정</button>
+        <button class="iname-save-btn" data-deletemortality="${m.id}" style="background:#FBEAE7;color:var(--stamp);border:1.5px solid var(--stamp);">삭제</button>
+      </div>` : `<div style="font-size:11px;color:#9a9180;margin-top:6px;">전환완료된 항목은 수정 불가</div>`}
     </div>`;
   });
+
+  // 수정 모달
+  const allSpecies = (state.species||[]).filter(s=>s.category==='활어');
+  html += `
+  <div id="mortalityEditModal" style="display:none;position:fixed;inset:0;background:rgba(20,20,18,0.55);z-index:200;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#fff;border-radius:16px;padding:24px;width:100%;max-width:460px;box-shadow:0 16px 48px rgba(0,0,0,0.28);max-height:90vh;overflow-y:auto;">
+      <div class="if-title" style="margin-bottom:14px;">폐사 내역 수정</div>
+      <div class="if-label">품종</div>
+      <select id="mei-species" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+        ${allSpecies.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
+      </select>
+      <div class="if-label">폐사 수량</div>
+      <input type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" id="mei-qty" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+      <div class="if-label">원인</div>
+      <div class="choice-grid" id="mei-cause-grid" style="margin-bottom:10px;">${CAUSES.map(c=>`<button class="choice-btn" data-meicause="${c}">${c}</button>`).join('')}</div>
+      <div class="if-label">발생 단계</div>
+      <div class="choice-grid" id="mei-stage-grid" style="margin-bottom:10px;">${STAGES.map(s=>`<button class="choice-btn" data-meistage="${s}">${s}</button>`).join('')}</div>
+      <div class="if-label">발생일</div>
+      <input type="date" id="mei-date" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+      <div class="if-label">처리 방향</div>
+      <div class="choice-grid" id="mei-status-grid" style="margin-bottom:10px;">${STATUSES.map(s=>`<button class="choice-btn" data-meistat="${s}">${s}</button>`).join('')}</div>
+      <div id="mei-warn" style="color:var(--stamp);font-size:13px;font-weight:700;margin-bottom:8px;display:none;"></div>
+      <div style="display:flex;gap:10px;margin-top:4px;">
+        <button id="mei-cancel" style="flex:1;padding:14px;border-radius:10px;border:1.5px solid var(--rule);background:var(--paper-deep);color:var(--navy);font-weight:700;font-size:16px;">취소</button>
+        <button id="mei-save" style="flex:1;padding:14px;border-radius:10px;border:none;background:var(--navy);color:#fff;font-weight:900;font-size:16px;">저장</button>
+      </div>
+    </div>
+  </div>`;
+
   return html;
 }
 
@@ -3005,6 +3044,148 @@ function attachHandlers(){
       if(!state.mortality) state.mortality=[];
       state.mortality.push({ id:uid(), speciesId:spId, quantity:qty, cause:selCause, stage:selStage, occurredAt:date, status:selMoStatus });
       await saveState(); render();
+    });
+
+    // ── 폐사 수정 모달 ────────────────────────────────────────────
+    let editingMortalityId = null;
+    let meiCause = '', meiStage = '', meiStatus = '전환대기';
+
+    function openMortalityEdit(id){
+      const m = (state.mortality||[]).find(x=>x.id===id);
+      if(!m || m.status==='전환완료') return;
+      editingMortalityId = id;
+      meiCause  = m.cause;
+      meiStage  = m.stage;
+      meiStatus = m.status;
+      const modal = document.getElementById('mortalityEditModal');
+      if(!modal) return;
+      document.getElementById('mei-species').value = m.speciesId||'';
+      document.getElementById('mei-qty').value     = m.quantity;
+      document.getElementById('mei-date').value    = m.occurredAt;
+      // 버튼 선택 상태 반영
+      document.querySelectorAll('[data-meicause]').forEach(b=>{
+        b.classList.toggle('sel-cause', b.dataset.meicause===meiCause);
+      });
+      document.querySelectorAll('[data-meistage]').forEach(b=>{
+        b.classList.toggle('sel-stage', b.dataset.meistage===meiStage);
+      });
+      document.querySelectorAll('[data-meistat]').forEach(b=>{
+        b.classList.toggle('sel-status', b.dataset.meistat===meiStatus);
+      });
+      document.getElementById('mei-warn').style.display = 'none';
+      modal.style.display = 'flex';
+    }
+
+    // 선택 버튼 토글
+    document.querySelectorAll('[data-meicause]').forEach(b=>{
+      b.onclick = ()=>{
+        meiCause = b.dataset.meicause;
+        document.querySelectorAll('[data-meicause]').forEach(x=>x.classList.toggle('sel-cause', x.dataset.meicause===meiCause));
+      };
+    });
+    document.querySelectorAll('[data-meistage]').forEach(b=>{
+      b.onclick = ()=>{
+        meiStage = b.dataset.meistage;
+        document.querySelectorAll('[data-meistage]').forEach(x=>x.classList.toggle('sel-stage', x.dataset.meistage===meiStage));
+      };
+    });
+    document.querySelectorAll('[data-meistat]').forEach(b=>{
+      b.onclick = ()=>{
+        meiStatus = b.dataset.meistat;
+        document.querySelectorAll('[data-meistat]').forEach(x=>x.classList.toggle('sel-status', x.dataset.meistat===meiStatus));
+      };
+    });
+
+    // 수정 버튼 / 행 클릭
+    document.querySelectorAll('[data-editmortalitybtn]').forEach(b=>{
+      b.onclick = (e)=>{ e.stopPropagation(); openMortalityEdit(b.dataset.editmortalitybtn); };
+    });
+    document.querySelectorAll('[data-editmortality]').forEach(row=>{
+      row.onclick = ()=>{ openMortalityEdit(row.dataset.editmortality); };
+    });
+
+    // 취소 버튼 / 바깥 클릭
+    document.getElementById('mei-cancel')?.addEventListener('click', ()=>{
+      editingMortalityId = null;
+      document.getElementById('mortalityEditModal').style.display = 'none';
+    });
+    document.getElementById('mortalityEditModal')?.addEventListener('click', e=>{
+      if(e.target===document.getElementById('mortalityEditModal')){
+        editingMortalityId = null;
+        document.getElementById('mortalityEditModal').style.display = 'none';
+      }
+    });
+
+    // 수정 저장
+    document.getElementById('mei-save')?.addEventListener('click', async ()=>{
+      if(!editingMortalityId) return;
+      const m = (state.mortality||[]).find(x=>x.id===editingMortalityId);
+      if(!m) return;
+      const warnEl  = document.getElementById('mei-warn');
+      const newSpId = document.getElementById('mei-species').value;
+      const newQty  = Number(document.getElementById('mei-qty').value||0);
+      const newDate = document.getElementById('mei-date').value;
+      if(!newSpId){ warnEl.textContent='품종을 선택해주세요.'; warnEl.style.display='block'; return; }
+      if(newQty<=0){ warnEl.textContent='수량은 0보다 커야 합니다.'; warnEl.style.display='block'; return; }
+
+      // ── 정합성 검증 ────────────────────────────────────────────
+      // 현재 재고에서 이 폐사 건을 제외한 가상 재고 계산
+      const oldQty  = m.quantity;
+      const oldSpId = m.speciesId;
+      // 폐사 취소 시 재고 복구 효과 = oldQty만큼 현재고 증가
+      // 새 폐사 등록 시 재고 차감 효과 = newQty만큼 현재고 감소
+      // 최소 재고 = currentStock - oldQty(복구) - newQty(재차감) >= 0
+      if(newSpId === oldSpId){
+        const stockAfter = currentStock(oldSpId) + oldQty - newQty;
+        if(stockAfter < 0){
+          const sp = getSp(oldSpId);
+          warnEl.textContent = `수량을 ${newQty}로 변경하면 재고가 부족합니다. (현재 재고: ${currentStock(oldSpId)}${sp?sp.unit:''}, 복구 가능 최대: ${currentStock(oldSpId)+oldQty}${sp?sp.unit:''})`;
+          warnEl.style.display='block'; return;
+        }
+      } else {
+        // 품종 변경 시 새 품종 재고 확인
+        const newStock = currentStock(newSpId);
+        if(newQty > newStock){
+          const sp = getSp(newSpId);
+          warnEl.textContent = `${sp?sp.name:'새 품종'}의 재고(${newStock}${sp?sp.unit:''})보다 폐사 수량이 많습니다.`;
+          warnEl.style.display='block'; return;
+        }
+      }
+
+      m.speciesId  = newSpId;
+      m.quantity   = newQty;
+      m.cause      = meiCause  || m.cause;
+      m.stage      = meiStage  || m.stage;
+      m.status     = meiStatus || m.status;
+      m.occurredAt = newDate;
+
+      editingMortalityId = null;
+      document.getElementById('mortalityEditModal').style.display = 'none';
+      await saveState(); render();
+    });
+
+    // 폐사 삭제
+    document.querySelectorAll('[data-deletemortality]').forEach(b=>{
+      b.onclick = async (e)=>{
+        e.stopPropagation();
+        const id = b.dataset.deletemortality;
+        const m  = (state.mortality||[]).find(x=>x.id===id);
+        if(!m || m.status==='전환완료') return;
+
+        // 정합성 검증: 삭제(복구)해도 재고가 음수가 되지 않는지
+        // 폐사 삭제 = 폐사 수량만큼 재고 복구 → 항상 재고 증가이므로 항상 가능
+        // (단, '전환대기' 상태는 전환 전이라 재고 계산에는 이미 차감 반영됨)
+        const sp = getSp(m.speciesId);
+        const ok = await showConfirm(
+          `<b>${sp?sp.name:'?'}</b> 폐사 기록을 삭제할까요?<br><br>` +
+          `폐사 수량 <b>${m.quantity}${sp?sp.unit:''}</b>이 재고에 복구됩니다.<br>` +
+          `(${dateLabel(m.occurredAt)} · ${m.cause})`
+        );
+        if(!ok) return;
+
+        state.mortality = (state.mortality||[]).filter(x=>x.id!==id);
+        await saveState(); render();
+      };
     });
 
     // ── 전환 ──────────────────────────────────────────────────
