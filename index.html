@@ -629,6 +629,7 @@ async function loadState(){
   if(!state.mortality) state.mortality = [];
   if(!state.conversions) state.conversions = [];
   if(!state.inventorySales) state.inventorySales = [];
+  if(!state.stockAdjustments) state.stockAdjustments = [];
   ensureItemDefaults();
   // c.balance 증분 캐시를 원본 데이터와 동기화 (수정이력 오차 자동 보정)
   syncAllBalances();
@@ -1326,12 +1327,27 @@ function shopHeaderHtml(){
 // ── 재고관리: 핵심 계산 함수 ──────────────────────────────────
 function getSp(id){ return state.species.find(s=>s.id===id); }
 function currentStock(spId){
-  const inQty   = (state.stockIn||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
-  const deadQty  = (state.mortality||[]).filter(r=>r.speciesId===spId && r.status!=='전환대기').reduce((s,r)=>s+r.quantity,0);
-  const convOut  = (state.conversions||[]).filter(r=>r.fromSpeciesId===spId).reduce((s,r)=>s+r.quantity,0);
-  const convIn   = (state.conversions||[]).filter(r=>r.toSpeciesId===spId).reduce((s,r)=>s+r.quantity,0);
-  const soldQty  = (state.inventorySales||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
-  return Math.max(0, inQty - deadQty - convOut + convIn - soldQty);
+  // 가장 최근 재고 조정 기록 찾기
+  const adjs = (state.stockAdjustments||[]).filter(r=>r.speciesId===spId);
+  let baseQty  = 0;
+  let baseDate = null; // null = 전체 이력 집계
+
+  if(adjs.length){
+    const latest = adjs.reduce((max,r)=>r.adjustedDate>max.adjustedDate?r:max, adjs[0]);
+    baseQty  = latest.afterQty;
+    baseDate = latest.adjustedDate; // YYYY-MM-DD
+  }
+
+  // baseDate 이후(strictly >) 기록만 집계 (= 조정일 당일은 이미 조정값에 포함)
+  const after = (d)=> !baseDate || d > baseDate;
+
+  const inQty  = (state.stockIn||[]).filter(r=>r.speciesId===spId && after(r.date)).reduce((s,r)=>s+r.quantity,0);
+  const deadQty= (state.mortality||[]).filter(r=>r.speciesId===spId && r.status!=='전환대기' && after(r.occurredAt)).reduce((s,r)=>s+r.quantity,0);
+  const convOut= (state.conversions||[]).filter(r=>r.fromSpeciesId===spId && after(r.convertedAt)).reduce((s,r)=>s+r.quantity,0);
+  const convIn = (state.conversions||[]).filter(r=>r.toSpeciesId===spId && after(r.convertedAt)).reduce((s,r)=>s+r.quantity,0);
+  const soldQty= (state.inventorySales||[]).filter(r=>r.speciesId===spId && after(r.date)).reduce((s,r)=>s+r.quantity,0);
+
+  return Math.max(0, baseQty + inQty - deadQty - convOut + convIn - soldQty);
 }
 function totalSoldQty(spId){
   return (state.inventorySales||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
@@ -1545,7 +1561,7 @@ function renderInvDashboard(){
         <div class="mc-val ${stock===0?'red':''}">${stock.toLocaleString()}<small style="font-size:13px;font-weight:500;">${sp.unit}</small></div>
         <div class="mc-sub">입고 ${inQty} · 판매 ${sold} · 폐사 ${dead}</div>
         <div class="mc-sub">폐사율 ${rate.toFixed(1)}%${loss>0?` · 손실 ${won(loss)}`:''}</div>
-      </div>
+      <button class="iname-save-btn" data-adjuststock="${sp.id}" style="margin-top:8px;width:100%;background:var(--paper-deep);color:var(--navy);border:1.5px solid var(--rule);font-size:12px;">재고 조정</button>
     </div>`;
   });
   html += `</div>`;
@@ -1558,6 +1574,47 @@ function renderInvDashboard(){
       html += `<div class="conv-candidate"><div class="cc-head"><span class="cc-name">${sp?sp.name:'?'} 폐사</span><span class="cc-qty">${m.quantity}${sp?sp.unit:''}</span></div><div class="ir-meta">${dateLabel(m.occurredAt)} · ${m.cause} · ${m.stage}</div></div>`;
     });
   }
+
+  // 재고 조정 이력 (있을 경우 요약 표시)
+  const recentAdjs = (state.stockAdjustments||[]).slice().sort((a,b)=>b.adjustedDate.localeCompare(a.adjustedDate)).slice(0,3);
+  if(recentAdjs.length){
+    html += `<div class="section-title">최근 재고 조정 <span class="count" style="background:var(--stamp);">${(state.stockAdjustments||[]).length}</span></div>`;
+    recentAdjs.forEach(r=>{
+      const sp = getSp(r.speciesId);
+      const diff = r.afterQty - r.beforeQty;
+      html += `<div class="inv-row" style="border-color:${diff>=0?'var(--green)':'var(--stamp)'};">
+        <div class="ir-top"><span class="ir-name">${sp?sp.name:'?'}</span><span class="ir-val" style="color:${diff>=0?'var(--green)':'var(--stamp)'};">${diff>=0?'+':''}${diff}${sp?sp.unit:''}</span></div>
+        <div class="ir-meta">${dateLabel(r.adjustedDate)} · ${r.beforeQty}→${r.afterQty}${sp?sp.unit:''} · ${r.reason||'사유 없음'}</div>
+      </div>`;
+    });
+    if((state.stockAdjustments||[]).length>3) html+=`<div class="empty" style="font-size:12px;">변동이력 탭에서 전체 조정 내역을 확인하세요.</div>`;
+  }
+
+  // 재고 조정 모달
+  html += `
+  <div id="stockAdjustModal" style="display:none;position:fixed;inset:0;background:rgba(20,20,18,0.55);z-index:200;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:#fff;border-radius:16px;padding:24px;width:100%;max-width:440px;box-shadow:0 16px 48px rgba(0,0,0,0.28);">
+      <div class="if-title" style="margin-bottom:4px;">재고 조정</div>
+      <div id="adj-spname" style="color:var(--navy);font-weight:700;font-size:14px;margin-bottom:14px;"></div>
+      <div style="background:var(--paper-deep);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+        <div style="font-size:12px;color:#9a9180;margin-bottom:2px;">현재 계산상 재고</div>
+        <div id="adj-current" style="font-size:22px;font-weight:900;color:var(--ink);"></div>
+      </div>
+      <div class="if-label">실측 재고 수량 (조정 후)</div>
+      <input type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" id="adj-newqty"
+        style="width:100%;font-size:18px;padding:12px;border:2px solid var(--navy);border-radius:8px;background:var(--paper);margin-bottom:10px;font-weight:700;">
+      <div class="if-label">조정일</div>
+      <input type="date" id="adj-date" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+      <div class="if-label">사유 (선택)</div>
+      <input type="text" id="adj-reason" placeholder="예: 실측 결과 차이, 입력 누락 확인" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+      <div id="adj-warn" style="color:var(--stamp);font-size:13px;font-weight:700;margin-bottom:8px;display:none;"></div>
+      <div style="display:flex;gap:10px;">
+        <button id="adj-cancel" style="flex:1;padding:14px;border-radius:10px;border:1.5px solid var(--rule);background:var(--paper-deep);color:var(--navy);font-weight:700;font-size:16px;">취소</button>
+        <button id="adj-save" style="flex:1;padding:14px;border-radius:10px;border:none;background:var(--stamp);color:#fff;font-weight:900;font-size:16px;">조정 저장</button>
+      </div>
+    </div>
+  </div>`;
+
   return html;
 }
 
@@ -1782,6 +1839,24 @@ function renderInvHistory(){
       events.push({ date:r.convertedAt, type:'전환입고', spName:tSp?tSp.name:'?', unit:tSp?tSp.unit:'', qty:+r.quantity, detail:`← ${fSp?fSp.name:'?'} (${r.batchTag})`, color:'green' });
     }
   });
+
+  // 재고 조정 이력 포함
+  (state.stockAdjustments||[]).forEach(r=>{
+    const sp = getSp(r.speciesId);
+    if(!filterSpId || r.speciesId===filterSpId){
+      const diff = r.afterQty - r.beforeQty;
+      events.push({
+        date: r.adjustedDate,
+        type:'재고조정',
+        spName: sp?sp.name:'?',
+        unit: sp?sp.unit:'',
+        qty: diff,
+        detail:`${r.beforeQty}→${r.afterQty}${sp?sp.unit:''} · ${r.reason||'사유 없음'}`,
+        color: diff >= 0 ? 'green' : 'red'
+      });
+    }
+  });
+
   events.sort((a,b)=>b.date.localeCompare(a.date));
 
   if(!events.length){
@@ -2597,6 +2672,7 @@ function attachHandlers(){
           if(!state.mortality) state.mortality = [];
           if(!state.conversions) state.conversions = [];
           if(!state.inventorySales) state.inventorySales = [];
+          if(!state.stockAdjustments) state.stockAdjustments = [];
           ensureItemDefaults();
           syncAllBalances(); // 백업 파일의 c.balance 오차도 자동 보정
           await saveState(); render();
@@ -2817,6 +2893,63 @@ function attachHandlers(){
     // 대시보드 품종 카드 클릭 → 변동이력으로 이동
     document.querySelectorAll('[data-invspecies]').forEach(b=>{
       b.onclick = ()=>{ invHistorySpId = b.dataset.invspecies; invSubTab='history'; render(); };
+    });
+
+    // ── 재고 조정 모달 ───────────────────────────────────────────
+    let adjustingSpId = null;
+
+    function openAdjustModal(spId){
+      adjustingSpId = spId;
+      const sp = getSp(spId);
+      const stock = currentStock(spId);
+      const modal = document.getElementById('stockAdjustModal');
+      if(!modal) return;
+      document.getElementById('adj-spname').textContent = `${sp?sp.name:'?'} (${sp?sp.category:''})`;
+      document.getElementById('adj-current').textContent = `${stock.toLocaleString()}${sp?sp.unit:''}`;
+      document.getElementById('adj-newqty').value = stock;
+      document.getElementById('adj-date').value = workingDate;
+      document.getElementById('adj-reason').value = '';
+      document.getElementById('adj-warn').style.display = 'none';
+      modal.style.display = 'flex';
+      setTimeout(()=>document.getElementById('adj-newqty')?.select(), 100);
+    }
+
+    document.querySelectorAll('[data-adjuststock]').forEach(b=>{
+      b.onclick = (e)=>{ e.stopPropagation(); openAdjustModal(b.dataset.adjuststock); };
+    });
+    document.getElementById('adj-cancel')?.addEventListener('click', ()=>{
+      adjustingSpId = null;
+      document.getElementById('stockAdjustModal').style.display = 'none';
+    });
+    document.getElementById('stockAdjustModal')?.addEventListener('click', e=>{
+      if(e.target===document.getElementById('stockAdjustModal')){
+        adjustingSpId = null;
+        document.getElementById('stockAdjustModal').style.display = 'none';
+      }
+    });
+    document.getElementById('adj-save')?.addEventListener('click', async ()=>{
+      if(!adjustingSpId) return;
+      const sp      = getSp(adjustingSpId);
+      const warnEl  = document.getElementById('adj-warn');
+      const newQty  = Number(document.getElementById('adj-newqty').value);
+      const adjDate = document.getElementById('adj-date').value || workingDate;
+      const reason  = document.getElementById('adj-reason').value.trim();
+      if(isNaN(newQty) || newQty < 0){
+        warnEl.textContent = '수량은 0 이상의 숫자로 입력해주세요.'; warnEl.style.display='block'; return;
+      }
+      const beforeQty = currentStock(adjustingSpId);
+      if(!state.stockAdjustments) state.stockAdjustments = [];
+      state.stockAdjustments.push({
+        id: uid(),
+        speciesId: adjustingSpId,
+        beforeQty,
+        afterQty: newQty,
+        adjustedDate: adjDate,
+        reason: reason || ''
+      });
+      adjustingSpId = null;
+      document.getElementById('stockAdjustModal').style.display = 'none';
+      await saveState(); render();
     });
     // 이력 필터 드롭다운
     document.getElementById('historySpFilter')?.addEventListener('change', (e)=>{
