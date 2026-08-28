@@ -547,6 +547,14 @@ function dateLabel(dateStr){
 }
 function won(n){ return Math.round(Number(n||0)).toLocaleString('ko-KR') + '원'; }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+/** 재고관리 최신순 정렬: 날짜 1차, 생성시각(createdAt) 2차 */
+function sortNewest(arr, dateKey){
+  return arr.slice().sort((a,b)=>{
+    const d = (b[dateKey]||'').localeCompare(a[dateKey]||'');
+    if(d!==0) return d;
+    return (b.createdAt||'').localeCompare(a.createdAt||'');
+  });
+}
 
 const CHOSUNG = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
 function toChosung(str){
@@ -1576,7 +1584,7 @@ function renderInvDashboard(){
   }
 
   // 재고 조정 이력 (있을 경우 요약 표시)
-  const recentAdjs = (state.stockAdjustments||[]).slice().sort((a,b)=>b.adjustedDate.localeCompare(a.adjustedDate)).slice(0,3);
+  const recentAdjs = sortNewest(state.stockAdjustments||[], 'adjustedDate').slice(0,3);
   if(recentAdjs.length){
     html += `<div class="section-title">최근 재고 조정 <span class="count" style="background:var(--stamp);">${(state.stockAdjustments||[]).length}</span></div>`;
     recentAdjs.forEach(r=>{
@@ -1636,7 +1644,7 @@ function renderInvStockIn(){
     <button class="btn-main" id="si-save">입고 등록</button>
   </div>
   <div class="section-title">입고 내역 <span class="count">${(state.stockIn||[]).length}</span></div>`;
-  const list = (state.stockIn||[]).slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const list = sortNewest(state.stockIn||[], 'date');
   if(!list.length) html += `<div class="empty">아직 입고 기록이 없습니다.</div>`;
   list.forEach(r=>{
     const sp = getSp(r.speciesId);
@@ -1709,7 +1717,7 @@ function renderInvMortality(){
     <button class="btn-main" id="mo-save">폐사 등록</button>
   </div>
   <div class="section-title">폐사 이력 <span class="count">${(state.mortality||[]).length}</span></div>`;
-  const list = (state.mortality||[]).slice().sort((a,b)=>b.occurredAt.localeCompare(a.occurredAt));
+  const list = sortNewest(state.mortality||[], 'occurredAt');
   if(!list.length) html += `<div class="empty">폐사 기록이 없습니다.</div>`;
   list.forEach(m=>{
     const sp = getSp(m.speciesId);
@@ -1789,7 +1797,7 @@ function renderInvConversion(){
   }
 
   html += `<div class="section-title">전환 이력</div>`;
-  const convList = (state.conversions||[]).slice().sort((a,b)=>b.convertedAt.localeCompare(a.convertedAt));
+  const convList = sortNewest(state.conversions||[], 'convertedAt');
   if(!convList.length) html += `<div class="empty">전환 기록이 없습니다.</div>`;
   convList.forEach(cv=>{
     const fromSp = getSp(cv.fromSpeciesId); const toSp = getSp(cv.toSpeciesId);
@@ -1857,7 +1865,10 @@ function renderInvHistory(){
     }
   });
 
-  events.sort((a,b)=>b.date.localeCompare(a.date));
+  events.sort((a,b)=>{
+    const d=(b.date||'').localeCompare(a.date||''); if(d!==0)return d;
+    return (b.createdAt||'').localeCompare(a.createdAt||'');
+  });
 
   if(!events.length){
     html += `<div class="empty">변동 이력이 없습니다.</div>`;
@@ -2945,7 +2956,8 @@ function attachHandlers(){
         beforeQty,
         afterQty: newQty,
         adjustedDate: adjDate,
-        reason: reason || ''
+        reason: reason || '',
+        createdAt: new Date().toISOString()
       });
       adjustingSpId = null;
       document.getElementById('stockAdjustModal').style.display = 'none';
@@ -3132,6 +3144,7 @@ function attachHandlers(){
       r.quantity   = newQty;
       r.unitCost   = newCost;
       r.date       = newDate;
+      r.createdAt  = new Date().toISOString(); // 수정 시각 갱신
 
       editingStockInId = null;
       document.getElementById('stockInEditModal').style.display = 'none';
@@ -3148,7 +3161,7 @@ function attachHandlers(){
       if(!spId){ alert('품종을 선택해주세요.'); return; }
       if(qty<=0){ alert('수량을 입력해주세요.'); return; }
       if(!state.stockIn) state.stockIn=[];
-      state.stockIn.push({ id:uid(), speciesId:spId, supplier, quantity:qty, unitCost:cost, date });
+      state.stockIn.push({ id:uid(), speciesId:spId, supplier, quantity:qty, unitCost:cost, date, createdAt:new Date().toISOString() });
       await saveState(); render();
     });
 
@@ -3175,7 +3188,7 @@ function attachHandlers(){
       if(!selCause){ alert('원인을 선택해주세요.'); return; }
       if(!selStage){ alert('발생 단계를 선택해주세요.'); return; }
       if(!state.mortality) state.mortality=[];
-      state.mortality.push({ id:uid(), speciesId:spId, quantity:qty, cause:selCause, stage:selStage, occurredAt:date, status:selMoStatus });
+      state.mortality.push({ id:uid(), speciesId:spId, quantity:qty, cause:selCause, stage:selStage, occurredAt:date, status:selMoStatus, createdAt:new Date().toISOString() });
       await saveState(); render();
     });
 
@@ -3291,6 +3304,7 @@ function attachHandlers(){
       m.stage      = meiStage  || m.stage;
       m.status     = meiStatus || m.status;
       m.occurredAt = newDate;
+      m.createdAt  = new Date().toISOString(); // 수정 시각 갱신
 
       editingMortalityId = null;
       document.getElementById('mortalityEditModal').style.display = 'none';
@@ -3339,7 +3353,8 @@ function attachHandlers(){
           id:uid(), mortalityId:moid,
           fromSpeciesId:m.speciesId, toSpeciesId:toSpId,
           quantity:qty, carriedCost, soldPrice,
-          convertedAt:workingDate, batchTag:`CONV-${uid().slice(0,6).toUpperCase()}`
+          convertedAt:workingDate, batchTag:`CONV-${uid().slice(0,6).toUpperCase()}`,
+          createdAt:new Date().toISOString()
         });
         m.status = '전환완료';
         await saveState(); render();
