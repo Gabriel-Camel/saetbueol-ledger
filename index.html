@@ -548,8 +548,29 @@ function dateLabel(dateStr){
 function won(n){ return Math.round(Number(n||0)).toLocaleString('ko-KR') + '원'; }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 /** 재고관리 최신순 정렬: 날짜 1차, 생성시각(createdAt) 2차 */
-/** 수량 입력값을 소수점 1자리로 반올림해 부동소수점 오차 방지 */
+/** 수량 입력값을 소수점 1자리로 반올림해 부동소수점 오차 방지
+ *  핵심: g 단위 정수 연산 후 kg 변환 → 0.1+0.2=0.3 (오차 없음)  */
 function parseQty(v){ return Math.round(Number(v||0)*10)/10; }
+
+/** 수량 표시: 소수점 1자리까지 (단위 없음) */
+function fmtQty(v){ return parseQty(v).toLocaleString('ko-KR', {minimumFractionDigits:0, maximumFractionDigits:1}); }
+
+/** kg 등 누적 합산을 정수(g) 연산으로 수행해 오차 없이 반환
+ *  사용법: sumQty([0.1, 0.2, ...]) → 0.3 (0.30000000000000004 아님)  */
+function sumQty(arr){ return arr.reduce((s,v)=>s+Math.round(v*10), 0)/10; }
+
+/** 앱 기동·백업 복원 시 저장된 수량 값의 부동소수점 오차 일괄 정리 */
+function fixupStoredQuantities(){
+  const round1 = v => Math.round(Number(v||0)*10)/10;
+  (state.stockIn||[]).forEach(r=>{ r.quantity=round1(r.quantity); });
+  (state.mortality||[]).forEach(r=>{ r.quantity=round1(r.quantity); });
+  (state.conversions||[]).forEach(r=>{ r.quantity=round1(r.quantity); });
+  (state.inventorySales||[]).forEach(r=>{ r.quantity=round1(r.quantity); });
+  (state.stockAdjustments||[]).forEach(r=>{
+    r.beforeQty=round1(r.beforeQty);
+    r.afterQty=round1(r.afterQty);
+  });
+}
 
 function sortNewest(arr, dateKey){
   return arr.slice().sort((a,b)=>{
@@ -643,6 +664,7 @@ async function loadState(){
   if(!state.stockAdjustments) state.stockAdjustments = [];
   ensureItemDefaults();
   // c.balance 증분 캐시를 원본 데이터와 동기화 (수정이력 오차 자동 보정)
+  fixupStoredQuantities(); // 저장된 수량 부동소수점 오차 일괄 정리
   syncAllBalances();
 }
 async function saveState(){
@@ -753,7 +775,7 @@ function renderTodayItemGridHtml(){
     if(it.speciesId){
       const stock = currentStock(it.speciesId);
       const sp = getSp(it.speciesId);
-      stockBadge = `<span class="p" style="color:${stock===0?'var(--stamp)':'var(--green)'};">재고 ${stock}${sp?sp.unit:''}</span>`;
+      stockBadge = `<span class="p" style="color:${stock===0?'var(--stamp)':'var(--green)'};">재고 ${fmtQty(stock)}${sp?sp.unit:''}</span>`;
     }
     return `<button class="item-btn ${inCart?'selected':''} ${has?'':'noprice'}" data-item="${it.id}">${it.name}<span class="p">${priceLabel}</span>${stockBadge}</button>`;
   }).join('') + `</div>`;
@@ -1341,27 +1363,38 @@ function currentStock(spId){
   // 가장 최근 재고 조정 기록 찾기
   const adjs = (state.stockAdjustments||[]).filter(r=>r.speciesId===spId);
   let baseQty  = 0;
-  let baseDate = null; // null = 전체 이력 집계
+  let baseDate = null;
 
   if(adjs.length){
     const latest = adjs.reduce((max,r)=>r.adjustedDate>max.adjustedDate?r:max, adjs[0]);
     baseQty  = latest.afterQty;
-    baseDate = latest.adjustedDate; // YYYY-MM-DD
+    baseDate = latest.adjustedDate;
   }
 
-  // baseDate 이후(strictly >) 기록만 집계 (= 조정일 당일은 이미 조정값에 포함)
   const after = (d)=> !baseDate || d > baseDate;
 
-  const inQty  = (state.stockIn||[]).filter(r=>r.speciesId===spId && after(r.date)).reduce((s,r)=>s+r.quantity,0);
-  const deadQty= (state.mortality||[]).filter(r=>r.speciesId===spId && r.status!=='전환대기' && after(r.occurredAt)).reduce((s,r)=>s+r.quantity,0);
-  const convOut= (state.conversions||[]).filter(r=>r.fromSpeciesId===spId && after(r.convertedAt)).reduce((s,r)=>s+r.quantity,0);
-  const convIn = (state.conversions||[]).filter(r=>r.toSpeciesId===spId && after(r.convertedAt)).reduce((s,r)=>s+r.quantity,0);
-  const soldQty= (state.inventorySales||[]).filter(r=>r.speciesId===spId && after(r.date)).reduce((s,r)=>s+r.quantity,0);
+  // ── g 단위 정수 연산으로 부동소수점 오차 완전 차단 ──────────
+  // 0.1kg 단위 → × 10 하면 정수. 정수끼리 더하고 마지막에 ÷ 10.
+  const toG = v => Math.round(Number(v||0) * 10); // kg → g(정수)
 
-  return Math.max(0, baseQty + inQty - deadQty - convOut + convIn - soldQty);
+  const baseG   = toG(baseQty);
+  const inG     = (state.stockIn||[]).filter(r=>r.speciesId===spId && after(r.date))
+                    .reduce((s,r)=>s+toG(r.quantity), 0);
+  const deadG   = (state.mortality||[]).filter(r=>r.speciesId===spId && r.status!=='전환대기' && after(r.occurredAt))
+                    .reduce((s,r)=>s+toG(r.quantity), 0);
+  const convOutG= (state.conversions||[]).filter(r=>r.fromSpeciesId===spId && after(r.convertedAt))
+                    .reduce((s,r)=>s+toG(r.quantity), 0);
+  const convInG = (state.conversions||[]).filter(r=>r.toSpeciesId===spId && after(r.convertedAt))
+                    .reduce((s,r)=>s+toG(r.quantity), 0);
+  const soldG   = (state.inventorySales||[]).filter(r=>r.speciesId===spId && after(r.date))
+                    .reduce((s,r)=>s+toG(r.quantity), 0);
+
+  return Math.max(0, (baseG + inG - deadG - convOutG + convInG - soldG) / 10);
 }
 function totalSoldQty(spId){
-  return (state.inventorySales||[]).filter(r=>r.speciesId===spId).reduce((s,r)=>s+r.quantity,0);
+  const toG = v => Math.round(Number(v||0)*10);
+  return (state.inventorySales||[]).filter(r=>r.speciesId===spId)
+    .reduce((s,r)=>s+toG(r.quantity), 0) / 10;
 }
 // item → 연결된 species 반환
 function getItemSpecies(itemId){
@@ -1585,7 +1618,7 @@ function renderInvDashboard(){
     html += `<div class="section-title">전환 대기 중 <span class="count">${pending.length}</span></div>`;
     pending.forEach(m=>{
       const sp = getSp(m.speciesId);
-      html += `<div class="conv-candidate"><div class="cc-head"><span class="cc-name">${sp?sp.name:'?'} 폐사</span><span class="cc-qty">${m.quantity}${sp?sp.unit:''}</span></div><div class="ir-meta">${dateLabel(m.occurredAt)} · ${m.cause} · ${m.stage}</div></div>`;
+      html += `<div class="conv-candidate"><div class="cc-head"><span class="cc-name">${sp?sp.name:'?'} 폐사</span><span class="cc-qty">${fmtQty(m.quantity)}${sp?sp.unit:''}</span></div><div class="ir-meta">${dateLabel(m.occurredAt)} · ${m.cause} · ${m.stage}</div></div>`;
     });
   }
 
@@ -1598,7 +1631,7 @@ function renderInvDashboard(){
       const diff = r.afterQty - r.beforeQty;
       html += `<div class="inv-row" style="border-color:${diff>=0?'var(--green)':'var(--stamp)'};">
         <div class="ir-top"><span class="ir-name">${sp?sp.name:'?'}</span><span class="ir-val" style="color:${diff>=0?'var(--green)':'var(--stamp)'};">${diff>=0?'+':''}${diff}${sp?sp.unit:''}</span></div>
-        <div class="ir-meta">${dateLabel(r.adjustedDate)} · ${r.beforeQty}→${r.afterQty}${sp?sp.unit:''} · ${r.reason||'사유 없음'}</div>
+        <div class="ir-meta">${dateLabel(r.adjustedDate)} · ${fmtQty(r.beforeQty)}→${fmtQty(r.afterQty)}${sp?sp.unit:''} · ${r.reason||'사유 없음'}</div>
       </div>`;
     });
     if((state.stockAdjustments||[]).length>3) html+=`<div class="empty" style="font-size:12px;">변동이력 탭에서 전체 조정 내역을 확인하세요.</div>`;
@@ -1658,7 +1691,7 @@ function renderInvStockIn(){
     <div class="inv-row" style="cursor:pointer;" data-editstockin="${r.id}">
       <div class="ir-top">
         <span class="ir-name">${sp?sp.name:'?'}</span>
-        <span class="ir-val">${r.quantity}${sp?sp.unit:''}</span>
+        <span class="ir-val">${fmtQty(r.quantity)}${sp?sp.unit:''}</span>
       </div>
       <div class="ir-meta">${dateLabel(r.date)} · ${r.supplier||'매입처 미기재'} · 단가 ${won(r.unitCost)}/${sp?sp.unit:'단위'}</div>
       <div style="text-align:right;margin-top:6px;">
@@ -1733,7 +1766,7 @@ function renderInvMortality(){
     <div class="inv-row" style="cursor:${canEdit?'pointer':'default'};" ${canEdit?`data-editmortality="${m.id}"`:''}>
       <div class="ir-top">
         <span class="ir-name">${sp?sp.name:'?'} 폐사 <span class="ir-tag ${tagClass}">${m.status}</span></span>
-        <span class="ir-val red">${m.quantity}${sp?sp.unit:''}</span>
+        <span class="ir-val red">${fmtQty(m.quantity)}${sp?sp.unit:''}</span>
       </div>
       <div class="ir-meta">${dateLabel(m.occurredAt)} · ${m.cause} · ${m.stage}</div>
       ${canEdit ? `<div style="display:flex;gap:8px;margin-top:8px;">
@@ -1786,14 +1819,14 @@ function renderInvConversion(){
       const sp = getSp(m.speciesId);
       html += `
       <div class="conv-candidate">
-        <div class="cc-head"><span class="cc-name">${sp?sp.name:'?'}</span><span class="cc-qty">${m.quantity}${sp?sp.unit:''}</span></div>
+        <div class="cc-head"><span class="cc-name">${sp?sp.name:'?'}</span><span class="cc-qty">${fmtQty(m.quantity)}${sp?sp.unit:''}</span></div>
         <div class="ir-meta">${dateLabel(m.occurredAt)} · ${m.cause} · ${m.stage}</div>
         <div class="if-label" style="margin-top:10px;">전환할 선어 품종</div>
         <select class="conv-to-species" data-moid="${m.id}" style="width:100%;font-size:14px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:8px;">
           <option value="">선어 품종 선택</option>
           ${freshSpecies.map(s=>`<option value="${s.id}">${s.name}</option>`).join('')}
         </select>
-        <div class="if-label">전환 수량 (최대 ${m.quantity}${sp?sp.unit:''})</div>
+        <div class="if-label">전환 수량 (최대 ${fmtQty(m.quantity)}${sp?sp.unit:''})</div>
         <input type="text" inputmode="decimal" pattern="[0-9]*\.?[0-9]*" class="conv-qty" data-moid="${m.id}" placeholder="${m.quantity}" value="${m.quantity}" style="width:100%;font-size:15px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:8px;">
         <div class="if-label">예상 판매 단가 (원/${sp?sp.unit:'단위'}, 마진손실 계산에 사용)</div>
         <input type="text" inputmode="numeric" pattern="[0-9]*" class="conv-sold" data-moid="${m.id}" placeholder="0" style="width:100%;font-size:15px;padding:9px;border:2px solid var(--rule);border-radius:8px;background:#fff;margin-bottom:10px;">
@@ -1865,7 +1898,7 @@ function renderInvHistory(){
         spName: sp?sp.name:'?',
         unit: sp?sp.unit:'',
         qty: diff,
-        detail:`${r.beforeQty}→${r.afterQty}${sp?sp.unit:''} · ${r.reason||'사유 없음'}`,
+        detail:`${fmtQty(r.beforeQty)}→${fmtQty(r.afterQty)}${sp?sp.unit:''} · ${r.reason||'사유 없음'}`,
         color: diff >= 0 ? 'green' : 'red'
       });
     }
@@ -1884,7 +1917,7 @@ function renderInvHistory(){
       <div class="inv-row">
         <div class="ir-top">
           <span class="ir-name">${e.spName} <span class="ir-tag ${e.color==='green'?'green':'red'}">${e.type}</span></span>
-          <span class="ir-val ${e.color==='red'?'red':'green'}">${e.qty>0?'+':''}${e.qty.toLocaleString()}${e.unit}</span>
+          <span class="ir-val ${e.color==='red'?'red':'green'}">${e.qty>0?'+':''}${fmtQty(e.qty)}${e.unit}</span>
         </div>
         <div class="ir-meta">${dateLabel(e.date)}${e.detail?' · '+e.detail:''}</div>
       </div>`;
@@ -1965,7 +1998,7 @@ function calcSpeciesProfit(spId, start, end, txMap){
   const profit     = revenue - cogs - mortLoss - convLoss;
   const profitRate = revenue>0 ? profit/revenue*100 : 0;
 
-  return { spId, avgCost, soldQty, revenue, cogs, mortLoss, convLoss, profit, profitRate };
+  return { spId, avgCost, soldQty: parseQty(soldQty), revenue, cogs, mortLoss, convLoss, profit, profitRate };
 }
 
 /** 기간 선택 → [start, end] YYYY-MM-DD */
@@ -2420,7 +2453,7 @@ function attachHandlers(){
         const qty = Math.round(Number(l.qty)*10)/10;
         if(qty > stock && stock >= 0){
           const sp = getSp(it.speciesId);
-          const go = await showConfirm(`${it.name} 재고(${stock}${sp?sp.unit:''})보다 판매량(${qty}${sp?sp.unit:''})이 많습니다. 그대로 진행할까요?`);
+          const go = await showConfirm(`${it.name} 재고(${fmtQty(stock)}${sp?sp.unit:''})보다 판매량(${fmtQty(qty)}${sp?sp.unit:''})이 많습니다. 그대로 진행할까요?`);
           if(!go) return;
         }
       }
@@ -2691,6 +2724,7 @@ function attachHandlers(){
           if(!state.inventorySales) state.inventorySales = [];
           if(!state.stockAdjustments) state.stockAdjustments = [];
           ensureItemDefaults();
+          fixupStoredQuantities(); // 백업 파일 수량 오차도 정리
           syncAllBalances(); // 백업 파일의 c.balance 오차도 자동 보정
           await saveState(); render();
         }
@@ -2949,7 +2983,7 @@ function attachHandlers(){
       const modal = document.getElementById('stockAdjustModal');
       if(!modal) return;
       document.getElementById('adj-spname').textContent = `${sp?sp.name:'?'} (${sp?sp.category:''})`;
-      document.getElementById('adj-current').textContent = `${stock.toLocaleString()}${sp?sp.unit:''}`;
+      document.getElementById('adj-current').textContent = `${fmtQty(stock)}${sp?sp.unit:''}`;
       document.getElementById('adj-newqty').value = stock;
       document.getElementById('adj-date').value = workingDate;
       document.getElementById('adj-reason').value = '';
@@ -3358,7 +3392,7 @@ function attachHandlers(){
         const sp = getSp(m.speciesId);
         const ok = await showConfirm(
           `<b>${sp?sp.name:'?'}</b> 폐사 기록을 삭제할까요?<br><br>` +
-          `폐사 수량 <b>${m.quantity}${sp?sp.unit:''}</b>이 재고에 복구됩니다.<br>` +
+          `폐사 수량 <b>${fmtQty(m.quantity)}${sp?sp.unit:''}</b>이 재고에 복구됩니다.<br>` +
           `(${dateLabel(m.occurredAt)} · ${m.cause})`
         );
         if(!ok) return;
