@@ -1391,6 +1391,27 @@ function currentStock(spId){
 
   return Math.max(0, (baseG + inG - deadG - convOutG + convInG - soldG) / 10);
 }
+
+/** 표시 전용 재고: 음수도 그대로 반환 (Math.max 클램프 없음)
+ *  대시보드 수량 표시에만 사용 — 재고 검증/계산에는 currentStock 사용  */
+function rawStock(spId){
+  const adjs = (state.stockAdjustments||[]).filter(r=>r.speciesId===spId);
+  let baseQty=0, baseDate=null;
+  if(adjs.length){
+    const latest=adjs.reduce((max,r)=>r.adjustedDate>max.adjustedDate?r:max,adjs[0]);
+    baseQty=latest.afterQty; baseDate=latest.adjustedDate;
+  }
+  const after=(d)=>!baseDate||d>baseDate;
+  const toG=v=>Math.round(Number(v||0)*10);
+  const baseG  =toG(baseQty);
+  const inG    =(state.stockIn||[]).filter(r=>r.speciesId===spId&&after(r.date)).reduce((s,r)=>s+toG(r.quantity),0);
+  const deadG  =(state.mortality||[]).filter(r=>r.speciesId===spId&&r.status!=='전환대기'&&after(r.occurredAt)).reduce((s,r)=>s+toG(r.quantity),0);
+  const convOutG=(state.conversions||[]).filter(r=>r.fromSpeciesId===spId&&after(r.convertedAt)).reduce((s,r)=>s+toG(r.quantity),0);
+  const convInG =(state.conversions||[]).filter(r=>r.toSpeciesId===spId&&after(r.convertedAt)).reduce((s,r)=>s+toG(r.quantity),0);
+  const soldG  =(state.inventorySales||[]).filter(r=>r.speciesId===spId&&after(r.date)).reduce((s,r)=>s+toG(r.quantity),0);
+  // ← Math.max(0,...) 없음: 음수 그대로 반환
+  return (baseG+inG-deadG-convOutG+convInG-soldG)/10;
+}
 function totalSoldQty(spId){
   const toG = v => Math.round(Number(v||0)*10);
   return (state.inventorySales||[]).filter(r=>r.speciesId===spId)
@@ -1587,10 +1608,11 @@ function renderInvDashboard(){
     const inQty  = (state.stockIn||[]).filter(r=>r.speciesId===sp.id).reduce((s,r)=>s+r.quantity,0);
     const sold   = totalSoldQty(sp.id);
     const dead   = (state.mortality||[]).filter(r=>r.speciesId===sp.id&&r.status!=='전환대기').reduce((s,r)=>s+r.quantity,0);
-    const stock  = currentStock(sp.id);
+    const stock  = rawStock(sp.id);   // 음수 포함 실제 계산값 (표시 전용)
     const rate   = mortalityRate(sp.id);
     const loss   = conversionMarginLoss(sp.id);
-    const isDanger = rate > 10 || stock === 0;
+    const isNeg  = stock < 0;
+    const isDanger = isNeg || rate > 10 || stock === 0;
     const isFirst = idx === 0;
     const isLast  = idx === species.length - 1;
     // 부동소수점 표시: 소수점 1자리까지 반올림
@@ -1604,7 +1626,7 @@ function renderInvDashboard(){
       <div style="cursor:pointer;padding-right:36px;" data-invspecies="${sp.id}">
         <div class="mc-label">${sp.category} · ${sp.unit}</div>
         <div class="mc-name">${sp.name}</div>
-        <div class="mc-val ${stock===0?'red':''}">${fmt(stock)}<small style="font-size:13px;font-weight:500;">${sp.unit}</small></div>
+        <div class="mc-val red">${fmt(stock)}<small style="font-size:13px;font-weight:500;">${sp.unit}</small>${isNeg?` <span style="font-size:11px;background:var(--stamp);color:#fff;border-radius:4px;padding:1px 6px;vertical-align:middle;">재고 부족</span>`:''}</div>
         <div class="mc-sub">입고 ${fmt(inQty)} · 판매 ${fmt(sold)} · 폐사 ${fmt(dead)}</div>
         <div class="mc-sub">폐사율 ${rate.toFixed(1)}%${loss>0?` · 손실 ${won(loss)}`:''}</div>
       </div>
