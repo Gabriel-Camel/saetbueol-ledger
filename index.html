@@ -1689,14 +1689,48 @@ function renderInvDashboard(){
 
 function renderInvStockIn(){
   const species = state.species||[];
+  const siQ = window._siSpeciesQuery||'';
+  const filtered = siQ ? species.filter(s=>matchesQuery(s.name, siQ)) : species;
+  const selId = window._siSelectedSpId||'';
+  const selSp = selId ? getSp(selId) : null;
   let html = `
   <div class="inv-form" id="invStockInForm">
     <div class="if-title">입고 등록</div>
-    <div class="if-label">품종</div>
-    <select id="si-species"><option value="">품종 선택</option>${species.map(s=>`<option value="${s.id}">${s.name} (${s.category})</option>`).join('')}</select>
+    <div class="if-label">품종 선택</div>
+    <!-- 검색창 -->
+    <input type="text" id="si-species-search" value="${siQ}"
+      placeholder="품종명 검색 (예: 농어, 광어…)"
+      style="margin-bottom:6px;"
+      autocomplete="off" autocorrect="off" spellcheck="false">
+    <!-- 선택된 품종 표시 -->
+    <div id="si-species-selected" style="
+      ${selSp ? '' : 'display:none;'}
+      background:var(--navy);color:#fff;border-radius:8px;
+      padding:8px 12px;margin-bottom:6px;font-weight:700;font-size:14px;
+      display:${selSp?'flex':'none'};align-items:center;justify-content:space-between;">
+      <span>${selSp?`${selSp.name} (${selSp.category})`:''}</span>
+      <button id="si-species-clear" style="background:none;border:none;color:#fff;font-size:18px;cursor:pointer;padding:0 0 0 12px;">✕</button>
+    </div>
+    <!-- 필터된 품종 목록 -->
+    <div id="si-species-list" style="
+      ${selSp ? 'display:none;' : ''}
+      max-height:200px;overflow-y:auto;border:1.5px solid var(--rule);
+      border-radius:10px;background:#fff;margin-bottom:4px;">
+      ${filtered.length ? filtered.map(s=>`
+        <button class="si-sp-btn" data-sisp="${s.id}" style="
+          display:block;width:100%;text-align:left;
+          padding:11px 14px;border:none;background:none;
+          border-bottom:1px solid var(--rule);font-size:14px;
+          cursor:pointer;color:var(--ink);">
+          ${s.name} <span style="color:#9a9180;font-size:12px;">${s.category} · ${s.unit}</span>
+        </button>`).join('') :
+        `<div style="padding:14px;color:#9a9180;text-align:center;font-size:13px;">검색 결과가 없습니다</div>`}
+    </div>
+    <!-- 숨겨진 실제 값 -->
+    <input type="hidden" id="si-species" value="${selId}">
     <div class="if-label">매입처</div>
     <input type="text" id="si-supplier" placeholder="예: ○○수협, 여수 직송">
-    <div class="if-label">수량 (${species.length?'품종 선택 후 단위 표시':''})</div>
+    <div class="if-label">수량${selSp?` (${selSp.unit})`:''}</div>
     <input type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" id="si-qty" placeholder="0.0">
     <div class="if-label">매입 단가 (원/단위)</div>
     <input type="text" inputmode="numeric" pattern="[0-9]*" id="si-cost" placeholder="0">
@@ -3240,6 +3274,60 @@ function attachHandlers(){
       await saveState(); render();
     });
 
+    // ── 입고 품종 검색 핸들러 ──────────────────────────────────
+    const siSearchEl = document.getElementById('si-species-search');
+    siSearchEl?.addEventListener('input', ()=>{
+      const q = siSearchEl.value;
+      window._siSpeciesQuery = q;
+      const all = state.species||[];
+      const filtered = q ? all.filter(s=>matchesQuery(s.name, q)) : all;
+      const listEl = document.getElementById('si-species-list');
+      const selEl  = document.getElementById('si-species-selected');
+      const hidEl  = document.getElementById('si-species');
+      if(listEl){
+        listEl.style.display = '';
+        listEl.innerHTML = filtered.length ? filtered.map(s=>`
+          <button data-sisp="${s.id}" style="display:block;width:100%;text-align:left;padding:11px 14px;border:none;background:none;border-bottom:1px solid var(--rule);font-size:14px;cursor:pointer;color:var(--ink);">
+            ${s.name} <span style="color:#9a9180;font-size:12px;">${s.category} · ${s.unit}</span>
+          </button>`).join('')
+          : `<div style="padding:14px;color:#9a9180;text-align:center;font-size:13px;">검색 결과가 없습니다</div>`;
+        listEl.querySelectorAll('[data-sisp]').forEach(b=>{ b.onclick=()=>selectSiSp(b.dataset.sisp); });
+      }
+      if(selEl) selEl.style.display='none';
+      if(hidEl) hidEl.value='';
+      window._siSelectedSpId = '';
+    });
+
+    function selectSiSp(spId){
+      const sp = getSp(spId);
+      if(!sp) return;
+      window._siSelectedSpId = spId;
+      window._siSpeciesQuery = '';
+      const selEl   = document.getElementById('si-species-selected');
+      const listEl  = document.getElementById('si-species-list');
+      const searchEl= document.getElementById('si-species-search');
+      const hidEl   = document.getElementById('si-species');
+      if(selEl){
+        selEl.style.display='flex';
+        selEl.querySelector('span').textContent=`${sp.name} (${sp.category})`;
+      }
+      if(listEl)  listEl.style.display='none';
+      if(searchEl) searchEl.value='';
+      if(hidEl)   hidEl.value=spId;
+    }
+    document.querySelectorAll('[data-sisp]').forEach(b=>{ b.onclick=()=>selectSiSp(b.dataset.sisp); });
+    document.getElementById('si-species-clear')?.addEventListener('click', ()=>{
+      window._siSelectedSpId=''; window._siSpeciesQuery='';
+      const selEl=document.getElementById('si-species-selected');
+      const listEl=document.getElementById('si-species-list');
+      const hidEl=document.getElementById('si-species');
+      const searchEl=document.getElementById('si-species-search');
+      if(selEl)  selEl.style.display='none';
+      if(listEl) listEl.style.display='';
+      if(hidEl)  hidEl.value='';
+      if(searchEl){ searchEl.value=''; searchEl.focus(); }
+    });
+
     // ── 입고 등록 ──────────────────────────────────────────────
     document.getElementById('si-save')?.addEventListener('click', async ()=>{
       const spId = document.getElementById('si-species')?.value;
@@ -3251,6 +3339,8 @@ function attachHandlers(){
       if(qty<=0){ alert('수량을 입력해주세요.'); return; }
       if(!state.stockIn) state.stockIn=[];
       state.stockIn.push({ id:uid(), speciesId:spId, supplier, quantity:qty, unitCost:cost, date, createdAt:new Date().toISOString() });
+      // 등록 후 품종 선택 상태 초기화
+      window._siSelectedSpId=''; window._siSpeciesQuery='';
       await saveState(); render();
     });
 
