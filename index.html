@@ -709,9 +709,30 @@ function calcClientBalance(clientId, beforeDate) {
     .filter(p=>p.clientId===clientId && (!beforeDate || p.date < beforeDate))
     .reduce((s,p)=>s+p.amount, 0);
 
-  // Math.max(0,...): 잔액은 음수 없음
-  // (이전 이중 Math.max 제거 → 단일 최종 클램프만 적용)
+  // Math.max(0,...): 정산 로직·집계 계산에는 음수 없음
   return Math.max(0, allCredit - allPaid);
+}
+
+/** 선결제(음수)를 포함한 실제 잔액 — 화면 표시 전용
+ *  calcClientBalance와 동일 계산이지만 Math.max 클램프 없음  */
+function rawClientBalance(clientId, beforeDate) {
+  const allCredit = Object.entries(state.tx||{})
+    .filter(([d])=> !beforeDate || d < beforeDate)
+    .flatMap(([,l])=>l)
+    .filter(t=>t.clientId===clientId && !t.paid)
+    .reduce((s,t)=>s+t.total, 0);
+  const allPaid = (state.payments||[])
+    .filter(p=>p.clientId===clientId && (!beforeDate || p.date < beforeDate))
+    .reduce((s,p)=>s+p.amount, 0);
+  return allCredit - allPaid; // 음수(선결제) 그대로
+}
+
+/** 잔액 표시 HTML: 양수=won(), 음수=파란색 선결제 표시 */
+function fmtBalance(v){
+  if(v < 0){
+    return `<span style="color:#1971C2;font-weight:900;">${won(Math.abs(v))} <small style="font-weight:700;font-size:11px;background:#1971C2;color:#fff;border-radius:4px;padding:1px 5px;vertical-align:middle;">선결제</small></span>`;
+  }
+  return won(v);
 }
 
 // 앱 기동 · 백업 복원 후 c.balance를 원본 데이터와 동기화
@@ -1077,10 +1098,10 @@ function renderClients(){
 }
 
 function renderBalanceListHtml(){
-  // calcClientBalance 재계산 기준으로 미수금 있는 거래처 필터
+  // rawClientBalance: 선결제(음수) 포함 — 미수금 > 0 또는 선결제(음수) 거래처 모두 표시
   const withBalance = state.clients
-    .map(c=>({ c, bal: calcClientBalance(c.id) }))
-    .filter(x=>x.bal>0)
+    .map(c=>({ c, bal: rawClientBalance(c.id) }))
+    .filter(x=>x.bal!==0)
     .sort((a,b)=>b.bal-a.bal);
   const filtered = balanceTabSearch
     ? withBalance.filter(x=>matchesQuery(x.c.name, balanceTabSearch))
@@ -1088,12 +1109,12 @@ function renderBalanceListHtml(){
   if(filtered.length===0){
     return balanceTabSearch
       ? `<div class="empty">'${balanceTabSearch}'와 일치하는 거래처가 없습니다.</div>`
-      : `<div class="empty">현재 미수금이 있는 거래처가 없습니다.</div>`;
+      : `<div class="empty">현재 미수금 또는 선결제가 있는 거래처가 없습니다.</div>`;
   }
   return filtered.map(({c, bal})=>`
       <div class="balance-row" id="brow-${c.id}">
         <div class="bname">${c.name}</div>
-        <div class="bamt" title="원본 데이터에서 재계산한 현재 미수금">${won(bal)}</div>
+        <div class="bamt" title="${bal<0?'선결제(초과 입금) 상태':'원본 데이터에서 재계산한 현재 미수금'}">${fmtBalance(bal)}</div>
         <div class="method-toggle" id="bmethod-${c.id}">
           <button class="${(balanceMethod[c.id]||'cash')==='cash'?'active':''}" data-bmethod="${c.id}" data-mval="cash">현금</button>
           <button class="${balanceMethod[c.id]==='card'?'active':''}" data-bmethod="${c.id}" data-mval="card">카드</button>
@@ -1178,9 +1199,9 @@ function attachBalanceRowHandlers(){
 }
 
 function renderBalance(){
-  const totalBal = (state.clients||[]).reduce((s,c)=>s+calcClientBalance(c.id), 0);
-  const anyWithBalance = (state.clients||[]).some(c=>calcClientBalance(c.id)>0);
-  let html = `<div class="total-out"><div class="l">전체 미수금 합계 (현재 기준)</div><div class="v">${won(totalBal)}</div></div>`;
+  const totalBal = (state.clients||[]).reduce((s,c)=>s+rawClientBalance(c.id), 0);
+  const anyWithBalance = (state.clients||[]).some(c=>rawClientBalance(c.id)!==0);
+  let html = `<div class="total-out"><div class="l">전체 미수금 합계 (현재 기준)</div><div class="v">${fmtBalance(totalBal)}</div></div>`;
   if(!anyWithBalance){
     html += `<div class="empty">현재 미수금이 있는 거래처가 없습니다.</div>`;
   } else {
@@ -1728,12 +1749,12 @@ function renderInvStockIn(){
     </div>
     <!-- 숨겨진 실제 값 -->
     <input type="hidden" id="si-species" value="${selId}">
-    <div class="if-label">매입처</div>
-    <input type="text" id="si-supplier" placeholder="예: ○○수협, 여수 직송">
     <div class="if-label">수량${selSp?` (${selSp.unit})`:''}</div>
     <input type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" id="si-qty" placeholder="0.0">
     <div class="if-label">매입 단가 (원/단위)</div>
     <input type="text" inputmode="numeric" pattern="[0-9]*" id="si-cost" placeholder="0">
+    <div class="if-label">매입처</div>
+    <input type="text" id="si-supplier" placeholder="예: ○○수협, 여수 직송">
     <div class="if-label">입고일</div>
     <input type="date" id="si-date" value="${workingDate}">
     <button class="btn-main" id="si-save">입고 등록</button>
@@ -2315,7 +2336,7 @@ function renderStatement(){
         const paymentsCard  = paymentsForClient.filter(p=>p.method==='card').reduce((s,p)=>s+p.amount,0);
 
         // ── 잔액 계산: 단 하나의 공통 함수 calcClientBalance 사용 ──
-        const priorBalance   = calcClientBalance(c.id, rangeStart); // 기간 시작 전
+        const priorBalance   = rawClientBalance(c.id, rangeStart); // 기간 시작 전 (선결제 포함)
         const currentBalance = calcClientBalance(c.id);              // 현재 = 미수금 탭과 동일
 
         html += `
@@ -2341,8 +2362,8 @@ function renderStatement(){
             <div class="st-row sub"><span>· 즉시결제(카드)</span><span>${won(periodCard)}</span></div>
             <div class="st-row sub credit"><span>· 외상(기간 중 발생)</span><span>${won(periodCredit)}</span></div>
             ${paymentsTotal>0?`<div class="st-row sub" style="color:var(--green);"><span>· 기간 중 입금액 (현금 ${won(paymentsCash)} · 카드 ${won(paymentsCard)})</span><span>-${won(paymentsTotal)}</span></div>`:''}
-            <div class="st-row"><span>이전 잔액 (${dateLabel(rangeStart)} 이전)</span><span>${won(priorBalance)}</span></div>
-            <div class="st-row total"><span>잔액</span><span>${won(currentBalance)}</span></div>
+            <div class="st-row"><span>이전 잔액 (${dateLabel(rangeStart)} 이전)</span><span>${fmtBalance(priorBalance)}</span></div>
+            <div class="st-row total"><span>잔액</span><span>${fmtBalance(currentBalance)}</span></div>
           </div>
           <div class="st-bank">계좌번호 : 우리은행 130-08-299596 김병국</div>
           ${selectedStatementClientId && state.clientMessages[msgKey(selectedStatementClientId)] ? `<div class="st-message">${state.clientMessages[msgKey(selectedStatementClientId)].replace(/\n/g,'<br>')}</div>` : ''}
@@ -2390,7 +2411,7 @@ function renderStatement(){
         <div class="st-row sub"><span>· 즉시결제(카드)</span><span>${won(periodCard)}</span></div>
         <div class="st-row sub credit"><span>· 외상</span><span>${won(periodCredit)}</span></div>
         <div class="st-row sub" style="color:var(--green);"><span>· 입금/정산액 (현금 ${won(paymentsCash)} · 카드 ${won(paymentsCard)})</span><span>${won(paymentsTotal)}</span></div>
-        <div class="st-row total"><span>전체 미수금 합계 (현재)</span><span>${won(totalBalance())}</span></div>
+        <div class="st-row total"><span>전체 미수금 합계 (현재)</span><span>${fmtBalance(totalBalance())}</span></div>
       </div>
       <div class="chart-wrap">
         <div class="chart-title">기간 매출 추이</div>
