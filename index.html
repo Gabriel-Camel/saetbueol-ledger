@@ -1753,8 +1753,13 @@ function renderInvStockIn(){
     <input type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" id="si-qty" placeholder="0.0">
     <div class="if-label">매입 단가 (원/단위)</div>
     <input type="text" inputmode="numeric" pattern="[0-9]*" id="si-cost" placeholder="0">
-    <div class="if-label">매입처</div>
-    <input type="text" id="si-supplier" placeholder="예: ○○수협, 여수 직송">
+    <div class="if-label">원산지</div>
+    <input type="text" id="si-supplier" list="origin-list"
+      placeholder="예: 국내산, 노르웨이산, 일본산"
+      autocomplete="off">
+    <datalist id="origin-list">
+      ${[...new Set((state.stockIn||[]).map(r=>r.supplier).filter(Boolean))].map(v=>`<option value="${v}">`).join('')}
+    </datalist>
     <div class="if-label">입고일</div>
     <input type="date" id="si-date" value="${workingDate}">
     <button class="btn-main" id="si-save">입고 등록</button>
@@ -1770,7 +1775,7 @@ function renderInvStockIn(){
         <span class="ir-name">${sp?sp.name:'?'}</span>
         <span class="ir-val">${fmtQty(r.quantity)}${sp?sp.unit:''}</span>
       </div>
-      <div class="ir-meta">${dateLabel(r.date)} · ${r.supplier||'매입처 미기재'} · 단가 ${won(r.unitCost)}/${sp?sp.unit:'단위'}</div>
+      <div class="ir-meta">${dateLabel(r.date)} · ${r.supplier||'원산지 미기재'} · 단가 ${won(r.unitCost)}/${sp?sp.unit:'단위'}</div>
       <div style="text-align:right;margin-top:6px;">
         <button class="iname-save-btn" data-editstockinbtn="${r.id}" style="background:var(--paper-deep);color:var(--navy);border:1.5px solid var(--rule);">수정</button>
       </div>
@@ -1786,8 +1791,8 @@ function renderInvStockIn(){
       <select id="sei-species" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
         ${species.map(s=>`<option value="${s.id}">${s.name} (${s.category})</option>`).join('')}
       </select>
-      <div class="if-label">매입처</div>
-      <input type="text" id="sei-supplier" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
+      <div class="if-label">원산지</div>
+      <input type="text" id="sei-supplier" list="origin-list" placeholder="예: 국내산, 노르웨이산" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;" autocomplete="off">
       <div class="if-label">수량</div>
       <input type="text" inputmode="decimal" pattern="[0-9]*\\.?[0-9]*" id="sei-qty" style="width:100%;font-size:15px;padding:10px;border:2px solid var(--rule);border-radius:8px;background:var(--paper);margin-bottom:10px;">
       <div class="if-label">매입 단가 (원/단위)</div>
@@ -1942,7 +1947,7 @@ function renderInvHistory(){
   (state.stockIn||[]).forEach(r=>{
     const sp = getSp(r.speciesId);
     if(!filterSpId || r.speciesId===filterSpId)
-      events.push({ date:r.date, type:'입고', spName:sp?sp.name:'?', unit:sp?sp.unit:'', qty:+r.quantity, detail:`${r.supplier||'매입처 미기재'} · ${won(r.unitCost)}/단위`, color:'green' });
+      events.push({ date:r.date, type:'입고', spName:sp?sp.name:'?', unit:sp?sp.unit:'', qty:+r.quantity, detail:`${r.supplier||'원산지 미기재'} · ${won(r.unitCost)}/단위`, color:'green' });
   });
   (state.inventorySales||[]).forEach(r=>{
     const sp = getSp(r.speciesId);
