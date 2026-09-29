@@ -10,7 +10,6 @@
 <meta name="apple-mobile-web-app-title" content="샛별수산">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="theme-color" content="#1C3A4B">
-<link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="icon" href="icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -643,14 +642,9 @@ function ensureItemDefaults(){
 
 async function loadState(){
   try{
-    if(window.storage){
-      const res = await window.storage.get(STORAGE_KEY, false);
-      if(res && res.value){ state = JSON.parse(res.value); }
-    } else {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if(raw){ state = JSON.parse(raw); }
-    }
-  }catch(e){}
+    const res = await window.storage.get(STORAGE_KEY, false);
+    if(res && res.value){ state = JSON.parse(res.value); }
+  }catch(e){ /* 첫 사용: 데이터 없음 */ }
   if(!state.clients) state.clients = [];
   if(!state.items) state.items = [];
   if(!state.tx) state.tx = {};
@@ -668,10 +662,8 @@ async function loadState(){
   syncAllBalances();
 }
 async function saveState(){
-  try{
-    if(window.storage){ await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); }
-    else { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-  } catch(e){ console.error('저장 실패', e); }
+  try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); }
+  catch(e){ console.error('저장 실패', e); }
 }
 
 function getClient(id){ return state.clients.find(c=>c.id===id); }
@@ -1754,12 +1746,9 @@ function renderInvStockIn(){
     <div class="if-label">매입 단가 (원/단위)</div>
     <input type="text" inputmode="numeric" pattern="[0-9]*" id="si-cost" placeholder="0">
     <div class="if-label">원산지</div>
-    <input type="text" id="si-supplier" list="origin-list"
+    <input type="text" id="si-supplier"
       placeholder="예: 국내산, 노르웨이산, 일본산"
-      autocomplete="off">
-    <datalist id="origin-list">
-      ${[...new Set((state.stockIn||[]).map(r=>r.supplier).filter(Boolean))].map(v=>`<option value="${v}">`).join('')}
-    </datalist>
+      autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
     <div class="if-label">입고일</div>
     <input type="date" id="si-date" value="${workingDate}">
     <button class="btn-main" id="si-save">입고 등록</button>
@@ -3600,7 +3589,6 @@ function attachHandlers(){
     render();
   });
 })();
-if('serviceWorker' in navigator){ window.addEventListener('load',()=>{ navigator.serviceWorker.register('service-worker.js').catch(()=>{}); }); }
 </script>
 </body>
 </html>
