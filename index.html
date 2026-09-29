@@ -642,8 +642,9 @@ function ensureItemDefaults(){
 
 async function loadState(){
   try{
-    const res = await window.storage.get(STORAGE_KEY, false);
-    if(res && res.value){ state = JSON.parse(res.value); }
+    // localStorage: 앱 종료·재시작 후에도 데이터 유지 (PWA 필수)
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){ state = JSON.parse(raw); }
   }catch(e){ /* 첫 사용: 데이터 없음 */ }
   if(!state.clients) state.clients = [];
   if(!state.items) state.items = [];
@@ -662,7 +663,7 @@ async function loadState(){
   syncAllBalances();
 }
 async function saveState(){
-  try{ await window.storage.set(STORAGE_KEY, JSON.stringify(state), false); }
+  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
   catch(e){ console.error('저장 실패', e); }
 }
 

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'saetbyeol-v55';
+const CACHE_NAME = 'saetbyeol-v56';
 const ASSETS = [
   './',
   './index.html',
